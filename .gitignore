@@ -1,0 +1,47 @@
+# 実行ファイル
+sample_02cvr
+*.exe
+*.out
+a.out
+
+# オブジェクトファイル
+*.o
+*.obj
+
+# 出力データファイル
+zrp01a.txt
+zrp01b.txt
+zrd01.txt
+zrmemo01.txt
+zrp*.txt
+zrd*.txt
+zrmemo*.txt
+
+# Excelファイル（分析結果）
+*.xlsx
+*.xls
+
+# データファイル（testdata1s.txt以外）
+testdic*.txt
+testdata*.txt
+!testdata1s.txt
+
+# バックアップファイル
+*.bak
+*.tmp
+*~
+
+# OS生成ファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタ設定
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# デバッグファイル
+*.dSYM/
+*.log
