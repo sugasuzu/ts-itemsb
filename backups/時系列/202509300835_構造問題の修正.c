@@ -17,6 +17,11 @@
    ================================================================================
 */
 
+/* ================================================================================
+   定数定義セクション - マジックナンバーを排除
+   ================================================================================
+*/
+
 /* 時系列パラメータ */
 #define TIMESERIES_MODE 1
 #define MAX_TIME_DELAY 10
@@ -62,26 +67,26 @@
 #define Njg 100
 #define Nmx 7
 
-/* 突然変異率の定数化 */
+/* 突然変異率の定数化（マジックナンバー排除） */
 #define Muratep 1
 #define Muratej 6
 #define Muratea 6
 #define Muratedelay 6
 #define Nkousa 20
 
-/* ルール構造パラメータ */
+/* ルール構造パラメータ（新規追加） */
 #define MAX_ATTRIBUTES 8      /* ルールの最大属性数 */
 #define MAX_DEPTH 10          /* 判定チェーンの最大深さ */
 #define HISTORY_GENERATIONS 5 /* 履歴保持世代数 */
 
-/* 進化計算パラメータ */
+/* 進化計算パラメータ（マジックナンバー排除） */
 #define ELITE_SIZE (Nkotai / 3) /* エリート個体数: 40 */
 #define ELITE_COPIES 3          /* エリートの複製数 */
 #define CROSSOVER_PAIRS 20      /* 交叉ペア数 */
 #define MUTATION_START_40 40    /* 突然変異開始インデックス1 */
 #define MUTATION_START_80 80    /* 突然変異開始インデックス2 */
 
-/* 品質判定パラメータ */
+/* 品質判定パラメータ（マジックナンバー排除） */
 #define HIGH_SUPPORT_BONUS 0.02    /* 高サポートボーナス閾値 */
 #define LOW_VARIANCE_REDUCTION 0.1 /* 低分散削減閾値 */
 #define FITNESS_SUPPORT_WEIGHT 10  /* サポート重み */
@@ -90,16 +95,16 @@
 #define FITNESS_ATTRIBUTE_WEIGHT 1 /* 属性数重み */
 #define FITNESS_SIGMA_WEIGHT 2     /* シグマ重み */
 
-/* レポート間隔 */
+/* レポート間隔（マジックナンバー排除） */
 #define REPORT_INTERVAL 5         /* レポート出力間隔 */
 #define DELAY_DISPLAY_INTERVAL 20 /* 遅延統計表示間隔 */
 
-/* ファイル名関連 */
+/* ファイル名関連（マジックナンバー排除） */
 #define FILENAME_BUFFER_SIZE 256 /* ファイル名バッファサイズ */
 #define ATTRIBUTE_NAME_SIZE 31   /* 属性名最大サイズ */
 #define FILENAME_DIGITS 5        /* ファイル名の桁数 */
 
-/* 微小値定数 */
+/* 微小値定数（マジックナンバー排除） */
 #define FITNESS_INIT_OFFSET -0.00001 /* 適応度初期オフセット */
 #define INITIAL_DELAY_HISTORY 1      /* 遅延履歴初期値 */
 #define REFRESH_BONUS 2              /* リフレッシュ時ボーナス */
@@ -356,6 +361,7 @@ void load_attribute_dictionary()
 
 /**
  * initialize_rule_pool()
+ * 改善版：配列を使った初期化でコードの重複を解消
  */
 void initialize_rule_pool()
 {
@@ -734,6 +740,7 @@ int check_rule_quality(double sigma_x, double sigma_y, double support)
 
 /**
  * check_rule_duplication()
+ * 改善版：配列比較により重複チェックを簡潔に
  */
 int check_rule_duplication(int *rule_candidate, int rule_count)
 {
@@ -758,6 +765,7 @@ int check_rule_duplication(int *rule_candidate, int rule_count)
 
 /**
  * register_new_rule()
+ * 改善版：配列操作により重複コードを解消
  */
 void register_new_rule(struct trial_state *state, int *rule_candidate, int *time_delays,
                        double x_mean, double x_sigma, double y_mean, double y_sigma,
@@ -966,6 +974,7 @@ void calculate_fitness_rankings()
 
 /**
  * perform_selection()
+ * 改善版：マジックナンバーを定数化
  */
 void perform_selection()
 {
@@ -990,6 +999,7 @@ void perform_selection()
 
 /**
  * perform_crossover()
+ * 改善版：マジックナンバーを定数化
  */
 void perform_crossover()
 {
@@ -1031,6 +1041,7 @@ void perform_mutation_processing_nodes()
 
 /**
  * perform_mutation_judgment_nodes()
+ * 改善版：マジックナンバーを定数化
  */
 void perform_mutation_judgment_nodes()
 {
@@ -1092,6 +1103,7 @@ int roulette_wheel_selection_attribute(int total_usage)
 
 /**
  * perform_adaptive_delay_mutation()
+ * 改善版：マジックナンバーを定数化
  */
 void perform_adaptive_delay_mutation()
 {
@@ -1142,6 +1154,7 @@ void perform_adaptive_delay_mutation()
 
 /**
  * perform_adaptive_attribute_mutation()
+ * 改善版：マジックナンバーを定数化
  */
 void perform_adaptive_attribute_mutation()
 {
@@ -1170,6 +1183,7 @@ void perform_adaptive_attribute_mutation()
 
 /**
  * update_delay_statistics()
+ * 改善版：マジックナンバーを定数化、配列処理の統一
  */
 void update_delay_statistics(int generation)
 {
@@ -1206,6 +1220,7 @@ void update_delay_statistics(int generation)
 
 /**
  * update_attribute_statistics()
+ * 改善版：マジックナンバーを定数化、配列処理の統一
  */
 void update_attribute_statistics(int generation)
 {
@@ -1286,6 +1301,7 @@ void create_trial_files(struct trial_state *state)
 
 /**
  * write_rule_to_file()
+ * 改善版：配列処理により重複コードを解消
  */
 void write_rule_to_file(struct trial_state *state, int rule_index)
 {
@@ -1318,6 +1334,7 @@ void write_rule_to_file(struct trial_state *state, int rule_index)
 
 /**
  * write_progress_report()
+ * 改善版：マジックナンバーを定数化
  */
 void write_progress_report(struct trial_state *state, int generation)
 {
@@ -1359,6 +1376,7 @@ void write_progress_report(struct trial_state *state, int generation)
 
 /**
  * write_local_output()
+ * 改善版：配列処理により重複コードを解消
  */
 void write_local_output(struct trial_state *state)
 {
@@ -1394,6 +1412,7 @@ void write_local_output(struct trial_state *state)
 
 /**
  * write_global_pool()
+ * 改善版：配列処理により重複コードを解消
  */
 void write_global_pool(struct trial_state *state)
 {
@@ -1491,6 +1510,7 @@ void write_document_stats(struct trial_state *state)
 
 /**
  * generate_filename()
+ * 改善版：マジックナンバーを定数化
  */
 void generate_filename(char *filename, const char *prefix, int trial_id)
 {
