@@ -7,10 +7,10 @@
 /* 2012-1-30 */
 /* N_(x)<=6 */
 
-/* 2021-1-12 ‚QŽŸŒ³‰» */
-/* 2021-1-21 ‘®«–¼Ž«‘’Ç‰Á */
-/* 2021-1-25 •Ï—ÊXAY‚Ì•W€‰»‘Î‰ž”Å */
-/* 2023-5-09 Œy”÷‚ÈC³ */
+/* 2021-1-12 ï¿½Qï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
+/* 2021-1-21 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç‰ï¿½ */
+/* 2021-1-25 ï¿½Ï—ï¿½Xï¿½AYï¿½Ì•Wï¿½ï¿½ï¿½ï¿½ï¿½Î‰ï¿½ï¿½ï¿½ */
+/* 2023-5-09 ï¿½yï¿½ï¿½ï¿½ÈCï¿½ï¿½ */
 
 /* Files */
 #define DATANAME "testdata1s.txt" /* input (data name) */
@@ -20,7 +20,7 @@
 #define fpoola "zrp01a.txt" /* output (rule pool a) (attibute name) */
 #define fpoolb "zrp01b.txt" /* output (rule pool b) (number) */
 #define fcont "zrd01.txt" /* document file */
-#define RESULTNAME "zrmemo01.txt" /* ƒƒ‚—pƒtƒ@ƒCƒ‹*/
+#define RESULTNAME "zrmemo01.txt" /* ï¿½ï¿½ï¿½ï¿½ï¿½pï¿½tï¿½@ï¿½Cï¿½ï¿½*/
 
 /* Data */
 #define Nrd 159 /* number of total records */
@@ -45,7 +45,7 @@
 #define Muratep 1 /* mutation rate-p */
 #define Muratej 6 /* mutation1 rate */
 #define Muratea 6 /* mutation2 rate */
-#define Nkousa 20 /* frequency of crossoverieach individualj*/
+#define Nkousa 20 /* frequency of crossoverï¿½ieach individualï¿½j*/
 
 void main()
 {

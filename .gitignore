@@ -45,3 +45,5 @@ desktop.ini
 # デバッグファイル
 *.dSYM/
 *.log
+
+/output
