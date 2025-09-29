@@ -81,7 +81,7 @@ graph LR
     end
 
     subgraph "Gene Representation"
-        G["遺伝子配列:<br/>属性ID: [15, 3, 8, 22, 7, 31, ...]<br/>接続先: [J1, J2, J3, J4, P2, ...]<br/>時間遅延: [2, 0, 1, 3, 1, 0, ...]"]
+        G["遺伝子配列:<br/>属性ID: &#91;15, 3, 8, 22, 7, 31, ...&#93;<br/>接続先: &#91;J1, J2, J3, J4, P2, ...&#93;<br/>時間遅延: &#91;2, 0, 1, 3, 1, 0, ...&#93;"]
     end
 ```
 
@@ -132,7 +132,7 @@ flowchart TD
 
     SetRange --> TimeLoop{時刻ループ<br/>t = 3 to 157}
 
-    TimeLoop -->|各時刻t| GetFuture[未来値取得<br/>X[t+1], Y[t+1]]
+    TimeLoop -->|各時刻t| GetFuture[未来値取得<br/>X&#91;t+1&#93;, Y&#91;t+1&#93;]
 
     GetFuture --> IndLoop{個体ループ<br/>i = 0 to 119}
 
@@ -142,11 +142,11 @@ flowchart TD
 
     InitChain --> ChainEval{判定ノード評価}
 
-    ChainEval --> GetDelay[時間遅延取得<br/>d = gene_delay[node]]
+    ChainEval --> GetDelay[時間遅延取得<br/>d = gene_delay&#91;node&#93;]
 
     GetDelay --> CalcIndex[データインデックス計算<br/>index = t - d]
 
-    CalcIndex --> CheckData{data[index][attr] == 1?}
+    CalcIndex --> CheckData{data&#91;index&#93;&#91;attr&#93; == 1?}
 
     CheckData -->|Yes| UpdateStats2[統計更新<br/>・match_count++<br/>・X,Y値累積<br/>・次ノードへ]
     CheckData -->|No| BreakChain[チェーン終了]
@@ -197,7 +197,7 @@ flowchart TD
 
     SaveRule --> LearnDelay[["遅延パターン学習<br/>(詳細は3.5参照)"]]
 
-    LearnDelay --> CalcFitness[適応度計算<br/>F = 属性数 + support×10<br/>+ 2/(σx+0.1) + 2/(σy+0.1) + 20]
+    LearnDelay --> CalcFitness[適応度計算<br/>F = 属性数 + support×10<br/>+ 2/&#40;σx+0.1&#41; + 2/&#40;σy+0.1&#41; + 20]
 
     UpdateFitness --> NextDepth[次の深さへ]
     CalcFitness --> NextDepth
@@ -246,8 +246,8 @@ flowchart TD
     subgraph "学習フェーズ (ルール発見時)"
         NewRule([新規ルール発見]) --> CheckQual{高品質ルール?<br/>高サポートor低分散}
 
-        CheckQual -->|Yes| BonusPoint[ボーナス加点<br/>delay_history[d] += 3]
-        CheckQual -->|No| NormalPoint[通常加点<br/>delay_history[d] += 1]
+        CheckQual -->|Yes| BonusPoint[ボーナス加点<br/>delay_history&#91;d&#93; += 3]
+        CheckQual -->|No| NormalPoint[通常加点<br/>delay_history&#91;d&#93; += 1]
 
         BonusPoint --> UpdateHist[履歴更新]
         NormalPoint --> UpdateHist
