@@ -258,7 +258,7 @@ flowchart TD
 
         CalcTotal --> Roulette[ルーレット選択準備<br/>過去5世代分の統計]
 
-        Roulette --> Random[乱数生成<br/>r = rand() % total]
+        Roulette --> Random[乱数生成<br/>r = rand&#40;&#41; % total]
 
         Random --> SelectDelay{累積頻度で選択}
 
