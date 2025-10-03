@@ -76,7 +76,7 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
 #define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 1    // 試行回数（100回の独立した実験を実行）
+#define Ntry 1      // 試行回数（100回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */
