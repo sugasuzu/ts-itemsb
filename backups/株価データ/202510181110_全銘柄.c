@@ -168,7 +168,7 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
 #define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 10    // 試行回数（10回の独立した実験を実行）
+#define Ntry 100    // 試行回数（100回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */
@@ -850,7 +850,7 @@ void free_dynamic_memory()
  * 最初の行をヘッダーとして解析し、属性名を辞書に格納
  * X列（予測対象）とT列（タイムスタンプ）の位置を特定
  */
-int load_csv_with_header()
+void load_csv_with_header()
 {
     FILE *file;
     char line[MAX_LINE_LENGTH];
@@ -865,8 +865,8 @@ int load_csv_with_header()
     file = fopen(data_file_path, "r");
     if (file == NULL)
     {
-        printf("Warning: Cannot open data file: %s (skipping this stock)\n", data_file_path);
-        return -1;  // エラーを返す（exit しない）
+        printf("Error: Cannot open data file: %s\n", data_file_path);
+        exit(1);
     }
 
     /* ステップ1: 行数とカラム数を数える */
@@ -1003,8 +1003,6 @@ int load_csv_with_header()
     printf("  Time range: %s to %s\n",
            timestamp_buffer[0], timestamp_buffer[Nrd - 1]);
     printf("  Minimum attributes per rule: %d\n", MIN_ATTRIBUTES);
-
-    return 0;  // 成功
 }
 
 /* ================================================================================
@@ -3222,12 +3220,7 @@ int process_single_stock(const char *code)
     create_output_directories();
 
     // CSVファイルからデータとヘッダーを読み込み
-    if (load_csv_with_header() != 0)
-    {
-        // ファイルが存在しない場合はスキップ
-        printf("Skipping stock %s (data file not found)\n\n", code);
-        return 1;  // 失敗を返す（次の銘柄へ）
-    }
+    load_csv_with_header();
 
     // グローバルカウンタを初期化
     initialize_global_counters();
