@@ -224,6 +224,10 @@ struct temporal_rule
     double x_mean;  // 予測値の平均
     double x_sigma; // 予測値の標準偏差
 
+    // T（時間）の統計 - Phase 2.2新機能
+    double t_mean_julian;  // Tの平均（Julian day）
+    double t_sigma_julian; // Tの標準偏差（Julian day単位）
+
     // ルールの品質指標
     int support_count;     // サポートカウント（マッチした回数）
     int negative_count;    // ネガティブカウント（評価対象数）
@@ -322,6 +326,10 @@ int ***attribute_chain = NULL;  // 属性チェーン（評価中の属性列）
 int ***time_delay_chain = NULL; // 時間遅延チェーン
 double ***x_sum = NULL;         // X値の合計（予測値）
 double ***x_sigma_array = NULL; // X値の二乗和（予測値の分散計算用）
+
+// T（時間）統計配列 - Phase 2.2新機能
+double ***t_sum_julian = NULL;        // Julian dayの合計
+double ***t_sigma_julian_array = NULL; // Julian dayの二乗和（分散計算用）
 
 /* 時間パターン追跡配列
    マッチした時点の詳細を記録 */
@@ -541,7 +549,10 @@ void allocate_dynamic_memory()
     x_sum = (double ***)malloc(Nkotai * sizeof(double **));
     x_sigma_array = (double ***)malloc(Nkotai * sizeof(double **));
 
-    // Phase 2で追加：実際の値の統計配列
+    // Phase 2.2で追加：T（時間）の統計配列
+    t_sum_julian = (double ***)malloc(Nkotai * sizeof(double **));
+    t_sigma_julian_array = (double ***)malloc(Nkotai * sizeof(double **));
+
     /* 時間パターン追跡配列 */
     matched_time_indices = (int ****)malloc(Nkotai * sizeof(int ***));
     matched_time_count = (int ***)malloc(Nkotai * sizeof(int **));
@@ -556,6 +567,8 @@ void allocate_dynamic_memory()
         time_delay_chain[i] = (int **)malloc(Npn * sizeof(int *));
         x_sum[i] = (double **)malloc(Npn * sizeof(double *));
         x_sigma_array[i] = (double **)malloc(Npn * sizeof(double *));
+        t_sum_julian[i] = (double **)malloc(Npn * sizeof(double *));
+        t_sigma_julian_array[i] = (double **)malloc(Npn * sizeof(double *));
         matched_time_indices[i] = (int ***)malloc(Npn * sizeof(int **));
         matched_time_count[i] = (int **)malloc(Npn * sizeof(int *));
 
@@ -568,6 +581,8 @@ void allocate_dynamic_memory()
             time_delay_chain[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             x_sum[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
             x_sigma_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
+            t_sum_julian[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
+            t_sigma_julian_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
             matched_time_count[i][j] = (int *)calloc(MAX_DEPTH, sizeof(int));
             matched_time_indices[i][j] = (int **)malloc(MAX_DEPTH * sizeof(int *));
 
@@ -693,6 +708,8 @@ void free_dynamic_memory()
                 free(time_delay_chain[i][j]);
                 free(x_sum[i][j]);
                 free(x_sigma_array[i][j]);
+                free(t_sum_julian[i][j]);
+                free(t_sigma_julian_array[i][j]);
                 free(matched_time_count[i][j]);
 
                 for (k = 0; k < MAX_DEPTH; k++)
@@ -708,6 +725,8 @@ void free_dynamic_memory()
             free(time_delay_chain[i]);
             free(x_sum[i]);
             free(x_sigma_array[i]);
+            free(t_sum_julian[i]);
+            free(t_sigma_julian_array[i]);
             free(matched_time_indices[i]);
             free(matched_time_count[i]);
         }
@@ -718,6 +737,8 @@ void free_dynamic_memory()
         free(time_delay_chain);
         free(x_sum);
         free(x_sigma_array);
+        free(t_sum_julian);
+        free(t_sigma_julian_array);
         free(matched_time_indices);
         free(matched_time_count);
     }
@@ -1271,6 +1292,8 @@ void initialize_individual_statistics()
                 // 統計値のクリア
                 x_sum[individual][k][i] = 0;
                 x_sigma_array[individual][k][i] = 0;
+                t_sum_julian[individual][k][i] = 0;
+                t_sigma_julian_array[individual][k][i] = 0;
                 matched_time_count[individual][k][i] = 0;
 
                 // マッチした時点のインデックスをクリア
@@ -1361,6 +1384,11 @@ void evaluate_single_instance(int time_index)
                         // 予測値の累積
                         x_sum[individual][k][depth] += future_x;
                         x_sigma_array[individual][k][depth] += future_x * future_x;
+
+                        // T（時間）の累積 - Phase 2.2新機能
+                        double current_julian = (double)time_info_array[time_index].julian_day;
+                        t_sum_julian[individual][k][depth] += current_julian;
+                        t_sigma_julian_array[individual][k][depth] += current_julian * current_julian;
 
                         // マッチした時点を記録
                         if (matched_time_count[individual][k][depth] < Nrd)
@@ -1465,6 +1493,22 @@ void calculate_rule_statistics()
                     }
 
                     x_sigma_array[individual][k][j] = sqrt(x_sigma_array[individual][k][j]);
+
+                    // T（時間）の平均を計算 - Phase 2.2新機能
+                    t_sum_julian[individual][k][j] /= (double)match_count[individual][k][j];
+
+                    // T（時間）の標準偏差を計算
+                    t_sigma_julian_array[individual][k][j] =
+                        t_sigma_julian_array[individual][k][j] / (double)match_count[individual][k][j] -
+                        t_sum_julian[individual][k][j] * t_sum_julian[individual][k][j];
+
+                    // 負の分散を防ぐ
+                    if (t_sigma_julian_array[individual][k][j] < 0)
+                    {
+                        t_sigma_julian_array[individual][k][j] = 0;
+                    }
+
+                    t_sigma_julian_array[individual][k][j] = sqrt(t_sigma_julian_array[individual][k][j]);
                 }
             }
         }
@@ -1672,6 +1716,10 @@ void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k
     {
         rule->matched_indices[i] = matched_time_indices[individual][k][depth][i];
     }
+
+    /* T（時間）統計を記録 - Phase 2.2新機能 */
+    rule->t_mean_julian = t_sum_julian[individual][k][depth];
+    rule->t_sigma_julian = t_sigma_julian_array[individual][k][depth];
 }
 
 /* ================================================================================
@@ -2721,7 +2769,7 @@ void write_global_pool(struct trial_state *state)
     {
         // ヘッダー行
         fprintf(file_a, "Attr1\tAttr2\tAttr3\tAttr4\tAttr5\tAttr6\tAttr7\tAttr8\t");
-        fprintf(file_a, "X_mean\tX_sigma\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\t");
+        fprintf(file_a, "X_mean\tX_sigma\tT_mean_julian\tT_sigma_julian\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\t");
         fprintf(file_a, "Month\tQuarter\tDay\tStart\tEnd\n");
 
         // グローバルプールの全ルールを出力
@@ -2743,9 +2791,10 @@ void write_global_pool(struct trial_state *state)
                 }
             }
 
-            // 予測値の統計
-            fprintf(file_a, "%8.3f\t%5.3f\t%d\t%6.4f\t%d\t%d\t%d\t",
+            // 予測値とT（時間）の統計
+            fprintf(file_a, "%8.3f\t%5.3f\t%8.2f\t%6.2f\t%d\t%6.4f\t%d\t%d\t%d\t",
                     global_rule_pool[i].x_mean, global_rule_pool[i].x_sigma,
+                    global_rule_pool[i].t_mean_julian, global_rule_pool[i].t_sigma_julian,
                     global_rule_pool[i].support_count, global_rule_pool[i].support_rate,
                     global_rule_pool[i].negative_count,
                     global_rule_pool[i].high_support_flag, global_rule_pool[i].low_variance_flag);
