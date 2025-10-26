@@ -21,6 +21,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.dates as mdates
 import seaborn as sns
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -147,6 +148,17 @@ class XTLocalDistributionVisualizer:
 
         return f"{year}-{month:02d}-{day:02d}"
 
+    def julian_to_datetime(self, julian_day: float) -> datetime:
+        """Julian日をdatetimeオブジェクトに変換（正確な変換）"""
+        # 2000-01-01を基準日とする
+        base_date = datetime(2000, 1, 1)
+        # julian_dayは2000年1月1日からの日数
+        return base_date + timedelta(days=julian_day)
+
+    def julian_array_to_datetime(self, julian_array):
+        """Julian日の配列をdatetimeの配列に変換"""
+        return [self.julian_to_datetime(j) for j in julian_array]
+
     def create_2d_local_distribution_plot(self, rule_idx: int = 0):
         """
         X-T 2次元局所分布プロット
@@ -193,11 +205,16 @@ class XTLocalDistributionVisualizer:
         # 全体分布（X, T両方で広く散らばる）
         global_x = np.random.normal(0, 1.5, n_points)
         global_t_julian = np.random.uniform(t_mean - 200, t_mean + 200, n_points)
+        global_t_dates = self.julian_array_to_datetime(global_t_julian)  # 日付に変換
 
         # 局所分布（ルールマッチ点）
         n_local = int(n_points * support_rate)
         local_x = np.random.normal(x_mean, x_sigma, n_local)
         local_t_julian = np.random.normal(t_mean, max(t_sigma, 5), n_local)  # 最小5日の分散
+        local_t_dates = self.julian_array_to_datetime(local_t_julian)  # 日付に変換
+
+        # 平均値も日付に変換
+        t_mean_date = self.julian_to_datetime(t_mean)
 
         # プロット作成（見やすいレイアウト）
         fig = plt.figure(figsize=(26, 20))
@@ -205,12 +222,17 @@ class XTLocalDistributionVisualizer:
 
         # ===== 1. 全体のX-T散布図（普通に見える） =====
         ax1 = fig.add_subplot(gs[0, :2])
-        ax1.scatter(global_t_julian, global_x, alpha=0.4, s=25, c='gray', edgecolors='none')
-        ax1.set_xlabel('時間（ユリウス日）', fontsize=16, fontweight='bold')
+        ax1.scatter(global_t_dates, global_x, alpha=0.4, s=25, c='gray', edgecolors='none')
+        ax1.set_xlabel('時間（日付）', fontsize=16, fontweight='bold')
         ax1.set_ylabel('X値（変化率）', fontsize=16, fontweight='bold')
         ax1.set_title(f'【適用前】全体のX-T散布図 - 一見普通\n'
                      f'XとTの両方向にデータが分散している',
                      fontsize=18, fontweight='bold', pad=15)
+
+        # 日付軸のフォーマット設定
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # 2ヶ月ごと
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=12)
         ax1.grid(True, alpha=0.4, linewidth=1.2)
 
         # 統計情報（見やすく大きく）
@@ -247,22 +269,24 @@ T統計:
         ax3 = fig.add_subplot(gs[1, :2])
 
         # 全体データ（薄く）
-        ax3.scatter(global_t_julian, global_x, alpha=0.15, s=20, c='lightgray',
+        ax3.scatter(global_t_dates, global_x, alpha=0.15, s=20, c='lightgray',
                    label='非マッチ', edgecolors='none')
 
         # ルールマッチデータ（強調・大きく）
-        ax3.scatter(local_t_julian, local_x, alpha=0.85, s=80, c='red',
+        ax3.scatter(local_t_dates, local_x, alpha=0.85, s=80, c='red',
                    edgecolors='darkred', linewidth=2,
                    label=f'ルール適合 ({n_local}点)', zorder=5)
 
         # 局所平均（太く目立つ）
         ax3.axhline(x_mean, color='red', linestyle='--', linewidth=3.5,
                    label=f'X平均 ({x_mean:.4f})', zorder=4, alpha=0.8)
-        ax3.axvline(t_mean, color='blue', linestyle='--', linewidth=3.5,
-                   label=f'T平均 ({t_mean:.1f})', zorder=4, alpha=0.8)
+        ax3.axvline(t_mean_date, color='blue', linestyle='--', linewidth=3.5,
+                   label=f'T平均 ({t_mean_date.strftime("%Y-%m-%d")})', zorder=4, alpha=0.8)
 
         # 2次元楕円（±1σ領域）より目立つ
-        ellipse = Ellipse((t_mean, x_mean),
+        # datetimeオブジェクトを使用するため、mdates.date2numで数値に変換
+        ellipse_center_x = mdates.date2num(t_mean_date)
+        ellipse = Ellipse((ellipse_center_x, x_mean),
                          width=t_sigma * 2,
                          height=x_sigma * 2,
                          fill=True, facecolor='red', alpha=0.2,
@@ -270,11 +294,17 @@ T統計:
                          label='±1σ領域（2次元）', zorder=3)
         ax3.add_patch(ellipse)
 
-        ax3.set_xlabel('時間（ユリウス日）', fontsize=16, fontweight='bold')
+        ax3.set_xlabel('時間（日付）', fontsize=16, fontweight='bold')
         ax3.set_ylabel('X値（変化率）', fontsize=16, fontweight='bold')
         ax3.set_title(f'【適用後】ルール適用 - 2次元局所分布！\n'
                      f'XとTの両方向で集中（クラスタリング）',
                      fontsize=18, fontweight='bold', color='darkred', pad=15)
+
+        # 日付軸のフォーマット設定
+        ax3.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax3.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # 2ヶ月ごと
+        plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=12)
+
         ax3.legend(fontsize=13, loc='best', framealpha=0.95, edgecolor='black', fancybox=True)
         ax3.grid(True, alpha=0.4, linewidth=1.2)
 
@@ -334,13 +364,22 @@ T統計（Phase 2.3）:
 
         # ===== 6. Tの分布比較 =====
         ax6 = fig.add_subplot(gs[2, 1])
+        # ヒストグラムは日付のまま表示できないので、Julian dayを使用
         ax6.hist(global_t_julian, bins=50, alpha=0.5, color='gray', label='全体', density=True, edgecolor='black', linewidth=0.5)
         ax6.hist(local_t_julian, bins=30, alpha=0.8, color='blue', label='局所（ルール）', density=True, edgecolor='darkblue', linewidth=1.5)
         ax6.axvline(global_t_julian.mean(), color='gray', linestyle='--', linewidth=3, alpha=0.7)
         ax6.axvline(t_mean, color='blue', linestyle='--', linewidth=3.5, alpha=0.9)
-        ax6.set_xlabel('T（ユリウス日）', fontsize=15, fontweight='bold')
+        ax6.set_xlabel('T（日付）', fontsize=15, fontweight='bold')
         ax6.set_ylabel('密度', fontsize=15, fontweight='bold')
         ax6.set_title('T分布の比較\n全体 vs 局所', fontsize=16, fontweight='bold', pad=12)
+
+        # X軸を日付形式に変換（Julian dayの目盛りを日付ラベルに変換）
+        # 現在の目盛り位置を取得
+        xticks = ax6.get_xticks()
+        # 各目盛り位置をJulian dayとして日付に変換
+        xticklabels = [self.julian_to_datetime(x).strftime('%Y-%m-%d') if x >= 0 else '' for x in xticks]
+        ax6.set_xticklabels(xticklabels, rotation=45, ha='right', fontsize=11)
+
         ax6.legend(fontsize=13, framealpha=0.95, edgecolor='black')
         ax6.grid(True, alpha=0.4, axis='y', linewidth=1.2)
 
@@ -353,19 +392,25 @@ T統計（Phase 2.3）:
             try:
                 xy = np.vstack([local_t_julian, local_x])
                 z = gaussian_kde(xy)(xy)
-                scatter = ax7.scatter(local_t_julian, local_x, c=z, s=70,
+                scatter = ax7.scatter(local_t_dates, local_x, c=z, s=70,
                                     cmap='Reds', alpha=0.7, edgecolors='darkred', linewidth=1)
                 cbar = plt.colorbar(scatter, ax=ax7, label='密度')
                 cbar.ax.tick_params(labelsize=12)
                 cbar.set_label('密度', fontsize=14, fontweight='bold')
             except:
-                ax7.scatter(local_t_julian, local_x, c='red', s=70, alpha=0.7, edgecolors='darkred')
+                ax7.scatter(local_t_dates, local_x, c='red', s=70, alpha=0.7, edgecolors='darkred')
 
         ax7.axhline(x_mean, color='red', linestyle='--', linewidth=3.5, alpha=0.8)
-        ax7.axvline(t_mean, color='blue', linestyle='--', linewidth=3.5, alpha=0.8)
-        ax7.set_xlabel('T（ユリウス日）', fontsize=15, fontweight='bold')
+        ax7.axvline(t_mean_date, color='blue', linestyle='--', linewidth=3.5, alpha=0.8)
+        ax7.set_xlabel('T（日付）', fontsize=15, fontweight='bold')
         ax7.set_ylabel('X値（変化率）', fontsize=15, fontweight='bold')
         ax7.set_title('2次元密度\n（局所分布）', fontsize=16, fontweight='bold', pad=12)
+
+        # 日付軸のフォーマット設定
+        ax7.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax7.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # 2ヶ月ごと
+        plt.setp(ax7.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=11)
+
         ax7.grid(True, alpha=0.4, linewidth=1.2)
 
         # 全体タイトル（Phase 2.3）より目立つ
