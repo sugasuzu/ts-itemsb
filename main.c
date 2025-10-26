@@ -1313,6 +1313,8 @@ void initialize_individual_statistics()
                 x_sigma_array[individual][k][i] = 0;
                 t_sum_julian[individual][k][i] = 0;
                 t_sigma_julian_array[individual][k][i] = 0;
+                t_min_julian_array[individual][k][i] = 1e9;   // Phase 2.3: 無限大で初期化
+                t_max_julian_array[individual][k][i] = -1e9;  // Phase 2.3: 負の無限大で初期化
                 matched_time_count[individual][k][i] = 0;
 
                 // マッチした時点のインデックスをクリア
@@ -1404,10 +1406,18 @@ void evaluate_single_instance(int time_index)
                         x_sum[individual][k][depth] += future_x;
                         x_sigma_array[individual][k][depth] += future_x * future_x;
 
-                        // T（時間）の累積 - Phase 2.2新機能
+                        // T（時間）の累積 - Phase 2.2/2.3拡張
                         double current_julian = (double)time_info_array[time_index].julian_day;
                         t_sum_julian[individual][k][depth] += current_julian;
                         t_sigma_julian_array[individual][k][depth] += current_julian * current_julian;
+
+                        // Phase 2.3: min/max更新
+                        if (current_julian < t_min_julian_array[individual][k][depth]) {
+                            t_min_julian_array[individual][k][depth] = current_julian;
+                        }
+                        if (current_julian > t_max_julian_array[individual][k][depth]) {
+                            t_max_julian_array[individual][k][depth] = current_julian;
+                        }
 
                         // マッチした時点を記録
                         if (matched_time_count[individual][k][depth] < Nrd)
@@ -1736,9 +1746,14 @@ void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k
         rule->matched_indices[i] = matched_time_indices[individual][k][depth][i];
     }
 
-    /* T（時間）統計を記録 - Phase 2.2新機能 */
+    /* T（時間）統計を記録 - Phase 2.2/2.3拡張 */
     rule->t_mean_julian = t_sum_julian[individual][k][depth];
     rule->t_sigma_julian = t_sigma_julian_array[individual][k][depth];
+    rule->t_min_julian = t_min_julian_array[individual][k][depth];   // Phase 2.3
+    rule->t_max_julian = t_max_julian_array[individual][k][depth];   // Phase 2.3
+    rule->t_span_days = rule->t_max_julian - rule->t_min_julian;     // Phase 2.3
+    rule->t_density = (rule->t_span_days > 0) ?
+                      ((double)rule->support_count / rule->t_span_days) : 0.0;  // Phase 2.3
 }
 
 /* ================================================================================
@@ -1750,15 +1765,17 @@ void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k
 */
 
 /**
- * ルールの品質をチェック
- * @param sigma_x 標準偏差
+ * ルールの品質をチェック（Phase 2.3: T方向の制約を追加）
+ * @param sigma_x X方向の標準偏差
+ * @param sigma_t T方向の標準偏差（時間）
  * @param support サポート値
  * @param num_attributes 属性数
  * @return 品質基準を満たす場合1、満たさない場合0
  */
-int check_rule_quality(double sigma_x, double support, int num_attributes)
+int check_rule_quality(double sigma_x, double sigma_t, double support, int num_attributes)
 {
-    return (sigma_x <= Maxsigx &&              // 標準偏差が閾値以下
+    return (sigma_x <= Maxsigx &&              // X方向の標準偏差が閾値以下
+            sigma_t <= Maxsigt &&              // T方向の標準偏差が閾値以下（Phase 2.3）
             support >= Minsup &&               // サポート値が閾値以上
             num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
 }
@@ -1939,6 +1956,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
         {
             // 現在の深さの統計を取得
             double sigma_x = x_sigma_array[individual][k][loop_j];
+            double sigma_t = t_sigma_julian_array[individual][k][loop_j];  // Phase 2.3: T方向の標準偏差
             int matched_count = match_count[individual][k][loop_j];
             double support = calculate_support_value(matched_count,
                                                      negative_count[individual][k][loop_j]);
@@ -1971,8 +1989,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // ルールの品質チェック
-            if (check_rule_quality(sigma_x, support, j2))
+            // ルールの品質チェック（Phase 2.3: T方向の制約を追加）
+            if (check_rule_quality(sigma_x, sigma_t, support, j2))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {
@@ -2786,9 +2804,9 @@ void write_global_pool(struct trial_state *state)
     /* ファイルA：詳細版（TSV形式） */
     if (file_a != NULL)
     {
-        // ヘッダー行
+        // ヘッダー行（Phase 2.3: T統計フィールドを追加）
         fprintf(file_a, "Attr1\tAttr2\tAttr3\tAttr4\tAttr5\tAttr6\tAttr7\tAttr8\t");
-        fprintf(file_a, "X_mean\tX_sigma\tT_mean_julian\tT_sigma_julian\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\t");
+        fprintf(file_a, "X_mean\tX_sigma\tT_mean_julian\tT_sigma_julian\tT_min_julian\tT_max_julian\tT_span_days\tT_density\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\t");
         fprintf(file_a, "Month\tQuarter\tDay\tStart\tEnd\n");
 
         // グローバルプールの全ルールを出力
@@ -2810,10 +2828,12 @@ void write_global_pool(struct trial_state *state)
                 }
             }
 
-            // 予測値とT（時間）の統計
-            fprintf(file_a, "%8.3f\t%5.3f\t%8.2f\t%6.2f\t%d\t%6.4f\t%d\t%d\t%d\t",
+            // 予測値とT（時間）の統計（Phase 2.3: T統計フィールドを追加）
+            fprintf(file_a, "%8.3f\t%5.3f\t%8.2f\t%6.2f\t%8.2f\t%8.2f\t%6.1f\t%6.4f\t%d\t%6.4f\t%d\t%d\t%d\t",
                     global_rule_pool[i].x_mean, global_rule_pool[i].x_sigma,
                     global_rule_pool[i].t_mean_julian, global_rule_pool[i].t_sigma_julian,
+                    global_rule_pool[i].t_min_julian, global_rule_pool[i].t_max_julian,
+                    global_rule_pool[i].t_span_days, global_rule_pool[i].t_density,
                     global_rule_pool[i].support_count, global_rule_pool[i].support_rate,
                     global_rule_pool[i].negative_count,
                     global_rule_pool[i].high_support_flag, global_rule_pool[i].low_variance_flag);
