@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-X-T 2次元局所分布可視化スクリプト - Phase 2.2
+X-T 2次元局所分布可視化スクリプト - Phase 2.3
 =================================================
 
 目的:
@@ -9,10 +9,12 @@ GNPが発見したルールによって、X-T空間での2次元局所分布を�
 ルール適用前は散らばっているが、ルール適用後はXとTの両方向で
 局所的に集中していることを示します。
 
-Phase 2.2の新機能:
-- T（時間）の分散も計算・可視化
+Phase 2.3の新機能:
+- T（時間）の分散も計算・可視化（Phase 2.2から継続）
 - X-T平面での2次元クラスタリングを表示
-- Xのσだけでなく、Tのσ（Julian day単位）も表示
+- Maxsigt制約により、真の2D局所分布のみ抽出
+- T統計の詳細：min/max/span/density を表示
+- X方向とT方向の両方で局所性を強制
 """
 
 import pandas as pd
@@ -157,12 +159,18 @@ class XTLocalDistributionVisualizer:
         x_sigma = rule['X_sigma']
         t_mean = rule.get('T_mean_julian', 0)
         t_sigma = rule.get('T_sigma_julian', 0)
+        t_min = rule.get('T_min_julian', 0)  # Phase 2.3新規
+        t_max = rule.get('T_max_julian', 0)  # Phase 2.3新規
+        t_span = rule.get('T_span_days', 0)  # Phase 2.3新規
+        t_density = rule.get('T_density', 0)  # Phase 2.3新規
         support_count = rule.get('support_count', 0)
         support_rate = rule.get('support_rate', 0)
 
         print(f"ルール統計情報:")
         print(f"  X: μ={x_mean:.4f}, σ={x_sigma:.4f}")
         print(f"  T: μ={t_mean:.2f} ユリウス日, σ={t_sigma:.2f} 日")
+        print(f"  T範囲: [{t_min:.1f}, {t_max:.1f}] = {t_span:.1f}日間")  # Phase 2.3新規
+        print(f"  T密度: {t_density:.4f} (マッチ/日)")  # Phase 2.3新規
         print(f"  サポート: {support_count} ({support_rate*100:.2f}%)")
         print(f"  Start: {rule.get('Start', 'N/A')}")
         print(f"  End: {rule.get('End', 'N/A')}")
@@ -284,10 +292,12 @@ X統計:
   標準偏差: {local_x.std():.4f}
   範囲: [{local_x.min():.2f}, {local_x.max():.2f}]
 
-T統計:
+T統計（Phase 2.3）:
   平均: {local_t_julian.mean():.2f}
   標準偏差: {local_t_julian.std():.2f} 日
-  範囲: [{local_t_julian.min():.0f}, {local_t_julian.max():.0f}]
+  範囲: [{t_min:.1f}, {t_max:.1f}]
+  期間: {t_span:.1f} 日間
+  密度: {t_density:.4f} /日
 
 データ点数: {n_local}
 
@@ -345,9 +355,9 @@ T統計:
         ax7.set_title('2次元密度\n（局所分布）')
         ax7.grid(True, alpha=0.3)
 
-        # 全体タイトル
+        # 全体タイトル（Phase 2.3）
         fig.suptitle(f'{self.forex_pair} - X-T 2次元局所分布（ルール #{rule_idx}）\n'
-                    f'Phase 2.2: XとTの両方向での局所的な集中を実証',
+                    f'Phase 2.3: XとTの両方向での局所的な集中を実証（Maxsigt={82.0}日制約）',
                     fontsize=16, fontweight='bold', y=0.995)
 
         # 保存

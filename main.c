@@ -98,7 +98,7 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
 #define Minsup 0.02      // 最小サポート値（2%以上の頻度が必要）※為替用に緩和
 #define Maxsigx 10.0     // X方向の最大標準偏差（分散が10.0以下のルールのみ採用）※為替用に緩和
-#define Maxsigt 30.0     // T方向の最大標準偏差（時間的に30日以内に集中）Phase 2.3新規
+#define Maxsigt 82.0     // T方向の最大標準偏差（時間的に82日以内に集中）Phase 2.3新規
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
