@@ -11,10 +11,10 @@
 
    【概要】
    このプログラムは、Genetic Network Programming (GNP)を使用して、
-   時系列株価データから予測ルールを自動発見するシステムです。
+   時系列為替レートデータから予測ルールを自動発見するシステムです。
 
    【主要機能】
-   1. 過去の複数時点の属性パターンから将来の株価を予測
+   1. 過去の複数時点の属性パターンから将来の為替レートを予測
    2. 時間遅延メカニズムによる時系列パターンの捕捉
    3. 適応的学習による効率的なルール発見
    4. 現在時点の実際値（actual_X）と予測値の両方を追跡
@@ -55,14 +55,14 @@
 
 /* ファイル名
    入力データと出力ファイルのパスを定義 */
-#define DATANAME "nikkei225_data/gnminer_individual/7203.txt" // 入力データファイル（デフォルト銘柄7203）
+#define DATANAME "forex_data/gnminer_individual/USDJPY.txt" // 入力データファイル（デフォルト通貨ペアUSDJPY）
 #define POOL_FILE_A "output/pool/zrp01a.txt"                  // ルールプール出力A（詳細版）
 #define POOL_FILE_B "output/pool/zrp01b.txt"                  // ルールプール出力B（要約版）
 #define CONT_FILE "output/doc/zrd01.txt"                      // 統計情報ファイル
 #define RESULT_FILE "output/doc/zrmemo01.txt"                 // メモファイル（未使用）
 
 /* 動的ファイルパス（コマンドライン引数で変更可能） */
-char stock_code[20] = "7203";                // 銘柄コード
+char forex_pair[20] = "USDJPY";              // 為替ペアコード
 char data_file_path[512] = DATANAME;         // データファイルパス
 char output_base_dir[256] = "output";        // 出力ベースディレクトリ
 char pool_file_a[512] = POOL_FILE_A;         // 動的ルールプールA
@@ -75,83 +75,18 @@ char output_dir_pool[512] = OUTPUT_DIR_POOL; // 動的pool出力
 char output_dir_doc[512] = OUTPUT_DIR_DOC;   // 動的doc出力
 char output_dir_vis[512] = OUTPUT_DIR_VIS;   // 動的vis出力
 
-/* 日経225構成銘柄リスト（2024年1月時点） */
-const char *NIKKEI_225_STOCKS[] = {
-    // 水産・農林業 (2)
-    "1332", "1333",
-    // 鉱業 (1)
-    "1605",
-    // 建設業 (9)
-    "1721", "1801", "1802", "1803", "1808", "1812", "1925", "1928", "1963",
-    // 食料品 (11)
-    "2002", "2269", "2282", "2501", "2502", "2503", "2531", "2801", "2802", "2871", "2914",
-    // 繊維製品 (4)
-    "3101", "3103", "3401", "3402",
-    // パルプ・紙 (2)
-    "3861", "3863",
-    // 化学 (18)
-    "3405", "3407", "4004", "4005", "4021", "4042", "4043", "4061", "4063", "4183",
-    "4188", "4208", "4452", "4631", "4901", "4911", "6988", "8113",
-    // 医薬品 (9)
-    "4151", "4502", "4503", "4506", "4507", "4519", "4523", "4568", "4578",
-    // 石油・石炭製品 (2)
-    "5019", "5020",
-    // ゴム製品 (2)
-    "5101", "5108",
-    // ガラス・土石製品 (8)
-    "5201", "5202", "5214", "5232", "5233", "5301", "5332", "5333",
-    // 鉄鋼 (4)
-    "5401", "5406", "5411", "5541",
-    // 非鉄金属 (11)
-    "5703", "5706", "5707", "5711", "5713", "5714", "5715", "5801", "5802", "5803", "3436",
-    // 金属製品 (1)
-    "5901",
-    // 機械 (15)
-    "6103", "6113", "6301", "6302", "6305", "6326", "6361", "6367", "6471", "6472",
-    "6473", "7004", "7011", "7012", "7013",
-    // 電気機器 (29)
-    "4902", "6479", "6501", "6502", "6503", "6504", "6506", "6508", "6645", "6674",
-    "6701", "6702", "6703", "6724", "6752", "6753", "6758", "6762", "6767", "6770",
-    "6841", "6857", "6902", "6952", "6954", "6971", "6976", "7735", "7751", "7752",
-    // 輸送用機器 (12)
-    "7003", "7201", "7202", "7203", "7205", "7211", "7261", "7267", "7269", "7270",
-    "7272", "7313",
-    // 精密機器 (5)
-    "4543", "7731", "7733", "7741", "7762",
-    // その他製品 (4)
-    "7832", "7911", "7912", "7951",
-    // 電気・ガス業 (10)
-    "9501", "9502", "9503", "9504", "9506", "9507", "9508", "9509", "9531", "9532",
-    // 陸運業 (10)
-    "9001", "9005", "9007", "9008", "9009", "9020", "9021", "9022", "9062", "9064",
-    // 海運業 (3)
-    "9101", "9104", "9107",
-    // 空運業 (2)
-    "9201", "9202",
-    // 倉庫・運輸関連業 (1)
-    "9301",
-    // 情報・通信業 (9)
-    "3659", "4324", "4689", "4704", "4755", "9432", "9433", "9434", "9613",
-    // 卸売業 (7)
-    "2768", "8001", "8002", "8015", "8031", "8053", "8058",
-    // 小売業 (8)
-    "3086", "3099", "3382", "7453", "8233", "8267", "8270", "9983",
-    // 銀行業 (7)
-    "7186", "8304", "8306", "8308", "8309", "8316", "8411",
-    // 証券・商品先物取引業 (2)
-    "8601", "8604",
-    // 保険業 (5)
-    "8630", "8725", "8750", "8766", "8795",
-    // その他金融業 (3)
-    "8253", "8591", "8697",
-    // 不動産業 (5)
-    "8801", "8802", "8803", "8804", "8830",
-    // サービス業 (11)
-    "2413", "4661", "4732", "6098", "6178", "9602", "9681", "9735", "9766", "9984", "2432",
+/* 主要為替ペアリスト（FX） */
+const char *FOREX_PAIRS[] = {
+    // 対円ペア (7ペア)
+    "USDJPY", "EURJPY", "GBPJPY", "AUDJPY", "NZDJPY", "CADJPY", "CHFJPY",
+    // 主要クロスペア (6ペア)
+    "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF",
+    // その他の主要ペア (7ペア)
+    "EURGBP", "EURAUD", "EURCHF", "GBPAUD", "GBPCAD", "AUDCAD", "AUDNZD",
     NULL // 終端マーカー
 };
 
-#define NIKKEI_225_COUNT 225 // 日経225銘柄数
+#define FOREX_PAIRS_COUNT 20 // 為替ペア数
 
 /* データ構造パラメータ
    CSVファイルから読み込み時に動的に設定される */
@@ -161,14 +96,14 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.1       // 最小サポート値（10%以上の頻度が必要）
-#define Maxsigx 5.0      // 最大標準偏差（分散が5.0以下のルールのみ採用）
+#define Minsup 0.02      // 最小サポート値（2%以上の頻度が必要）※為替用に緩和
+#define Maxsigx 10.0     // 最大標準偏差（分散が10.0以下のルールのみ採用）※為替用に緩和
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
 #define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 10    // 試行回数（10回の独立した実験を実行）
+#define Ntry 10     // 試行回数（10回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */
@@ -220,12 +155,6 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 #define FITNESS_NEW_RULE_BONUS 20  // 適応度計算：新規ルールボーナス
 #define FITNESS_ATTRIBUTE_WEIGHT 1 // 適応度計算：属性数の重み
 #define FITNESS_SIGMA_WEIGHT 4     // 適応度計算：標準偏差の重み
-
-/* Chi-square検定パラメータ
-   統計的有意性を判定する閾値（自由度1の場合） */
-#define MIN_CHI_SQUARED 3.84  // 最小カイ二乗値（5%有意水準）
-#define HIGH_CHI_SQUARED 6.63 // 高カイ二乗値（1%有意水準）
-#define CHI_SQUARE_ENABLED 1  // カイ二乗検定の有効化（1:有効、0:無効）
 
 /* レポート間隔
    進捗報告とログ出力の頻度 */
@@ -295,10 +224,6 @@ struct temporal_rule
     double x_mean;  // 予測値の平均
     double x_sigma; // 予測値の標準偏差
 
-    // 実際の値の統計（t時点の値、Phase 2で追加）
-    double actual_x_mean;  // 現在値の平均
-    double actual_x_sigma; // 現在値の標準偏差
-
     // ルールの品質指標
     int support_count;     // サポートカウント（マッチした回数）
     int negative_count;    // ネガティブカウント（評価対象数）
@@ -306,11 +231,6 @@ struct temporal_rule
     int high_support_flag; // 高サポートフラグ（1:高サポート）
     int low_variance_flag; // 低分散フラグ（1:低分散）
     int num_attributes;    // 属性数
-
-    // 統計的有意性指標
-    double chi_squared;       // カイ二乗値（前件部と後件部の独立性検定）
-    double p_value;           // p値（有意確率、未実装）
-    int high_chi_square_flag; // 高カイ二乗フラグ（1:高有意性）
 
     // 時間パターン情報
     struct temporal_statistics time_stats; // 時間統計
@@ -344,7 +264,6 @@ struct trial_state
     int rule_count;                 // 発見したルール数
     int high_support_rule_count;    // 高サポートルール数
     int low_variance_rule_count;    // 低分散ルール数
-    int high_chi_square_rule_count; // 高カイ二乗ルール数
     int generation;                 // 現在の世代数
     double elapsed_time;            // 経過時間（秒）
 
@@ -372,8 +291,16 @@ struct time_info *time_info_array = NULL; // 時間情報配列 [レコード数
 
 /* ルールプール
    発見されたルールを格納（静的配列） */
-struct temporal_rule rule_pool[Nrulemax]; // ルールプール
+struct temporal_rule rule_pool[Nrulemax]; // ルールプール（試行ごと）
 struct cmrule compare_rules[Nrulemax];    // 比較用ルール
+
+/* グローバルルールプール
+   全試行を通じて発見された統合ルール */
+struct temporal_rule *global_rule_pool = NULL; // グローバルルールプール（動的）
+struct cmrule *global_compare_rules = NULL;    // グローバル比較用ルール
+int global_rule_count = 0;                      // グローバルルール数
+int global_high_support_count = 0;              // グローバル高サポート数
+int global_low_variance_count = 0;              // グローバル低分散数
 
 /* 時間遅延統計
    適応的学習のための遅延使用履歴 */
@@ -395,10 +322,6 @@ int ***attribute_chain = NULL;  // 属性チェーン（評価中の属性列）
 int ***time_delay_chain = NULL; // 時間遅延チェーン
 double ***x_sum = NULL;         // X値の合計（予測値）
 double ***x_sigma_array = NULL; // X値の二乗和（予測値の分散計算用）
-
-/* Phase 2で追加：実際のX値の統計 */
-double ***actual_x_sum = NULL;         // 実際のX値の合計
-double ***actual_x_sigma_array = NULL; // 実際のX値の二乗和
 
 /* 時間パターン追跡配列
    マッチした時点の詳細を記録 */
@@ -427,7 +350,6 @@ int **gene_time_delay = NULL; // 時間遅延遺伝子
 int total_rule_count = 0;      // 総ルール数
 int total_high_support = 0;    // 総高サポートルール数
 int total_low_variance = 0;    // 総低分散ルール数
-int total_high_chi_square = 0; // 総高カイ二乗ルール数
 
 /* その他の作業用配列 */
 int rules_per_trial[Ntry];               // 各試行のルール数
@@ -577,11 +499,11 @@ void allocate_dynamic_memory()
     // 1次元配列：各レコードのX値（予測対象）
     x_buffer = (double *)malloc(Nrd * sizeof(double));
 
-    // 2次元配列：各レコードのタイムスタンプ文字列
+    // 2次元配列：各レコードのタイムスタンプ文字列（タイムゾーン付き対応）
     timestamp_buffer = (char **)malloc(Nrd * sizeof(char *));
     for (i = 0; i < Nrd; i++)
     {
-        timestamp_buffer[i] = (char *)malloc(20 * sizeof(char));
+        timestamp_buffer[i] = (char *)malloc(20 * sizeof(char)); // タイムゾーン付き文字列に対応
     }
 
     // 時間情報配列：各レコードの解析済み時間情報
@@ -620,9 +542,6 @@ void allocate_dynamic_memory()
     x_sigma_array = (double ***)malloc(Nkotai * sizeof(double **));
 
     // Phase 2で追加：実際の値の統計配列
-    actual_x_sum = (double ***)malloc(Nkotai * sizeof(double **));
-    actual_x_sigma_array = (double ***)malloc(Nkotai * sizeof(double **));
-
     /* 時間パターン追跡配列 */
     matched_time_indices = (int ****)malloc(Nkotai * sizeof(int ***));
     matched_time_count = (int ***)malloc(Nkotai * sizeof(int **));
@@ -637,8 +556,6 @@ void allocate_dynamic_memory()
         time_delay_chain[i] = (int **)malloc(Npn * sizeof(int *));
         x_sum[i] = (double **)malloc(Npn * sizeof(double *));
         x_sigma_array[i] = (double **)malloc(Npn * sizeof(double *));
-        actual_x_sum[i] = (double **)malloc(Npn * sizeof(double *));         // Phase 2追加
-        actual_x_sigma_array[i] = (double **)malloc(Npn * sizeof(double *)); // Phase 2追加
         matched_time_indices[i] = (int ***)malloc(Npn * sizeof(int **));
         matched_time_count[i] = (int **)malloc(Npn * sizeof(int *));
 
@@ -651,8 +568,6 @@ void allocate_dynamic_memory()
             time_delay_chain[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             x_sum[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
             x_sigma_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
-            actual_x_sum[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));         // Phase 2追加
-            actual_x_sigma_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double)); // Phase 2追加
             matched_time_count[i][j] = (int *)calloc(MAX_DEPTH, sizeof(int));
             matched_time_indices[i][j] = (int **)malloc(MAX_DEPTH * sizeof(int *));
 
@@ -695,6 +610,17 @@ void allocate_dynamic_memory()
     for (i = 0; i < Nrulemax; i++)
     {
         rule_pool[i].matched_indices = (int *)malloc(Nrd * sizeof(int));
+    }
+
+    /* グローバルルールプール（全試行統合用）の割り当て */
+    // 最大で全試行のルール数を保持できるサイズ（重複除去で実際にはこれより少なくなる）
+    global_rule_pool = (struct temporal_rule *)malloc(Nrulemax * Ntry * sizeof(struct temporal_rule));
+    global_compare_rules = (struct cmrule *)malloc(Nrulemax * Ntry * sizeof(struct cmrule));
+
+    // 各グローバルルールのマッチインデックス配列を事前に割り当て
+    for (i = 0; i < Nrulemax * Ntry; i++)
+    {
+        global_rule_pool[i].matched_indices = (int *)malloc(Nrd * sizeof(int));
     }
 }
 
@@ -767,8 +693,6 @@ void free_dynamic_memory()
                 free(time_delay_chain[i][j]);
                 free(x_sum[i][j]);
                 free(x_sigma_array[i][j]);
-                free(actual_x_sum[i][j]);         // Phase 2追加
-                free(actual_x_sigma_array[i][j]); // Phase 2追加
                 free(matched_time_count[i][j]);
 
                 for (k = 0; k < MAX_DEPTH; k++)
@@ -784,8 +708,6 @@ void free_dynamic_memory()
             free(time_delay_chain[i]);
             free(x_sum[i]);
             free(x_sigma_array[i]);
-            free(actual_x_sum[i]);         // Phase 2追加
-            free(actual_x_sigma_array[i]); // Phase 2追加
             free(matched_time_indices[i]);
             free(matched_time_count[i]);
         }
@@ -796,8 +718,6 @@ void free_dynamic_memory()
         free(time_delay_chain);
         free(x_sum);
         free(x_sigma_array);
-        free(actual_x_sum);         // Phase 2追加
-        free(actual_x_sigma_array); // Phase 2追加
         free(matched_time_indices);
         free(matched_time_count);
     }
@@ -835,6 +755,20 @@ void free_dynamic_memory()
     {
         free(rule_pool[i].matched_indices);
     }
+
+    /* グローバルルールプール解放 */
+    if (global_rule_pool != NULL)
+    {
+        for (i = 0; i < Nrulemax * Ntry; i++)
+        {
+            free(global_rule_pool[i].matched_indices);
+        }
+        free(global_rule_pool);
+    }
+    if (global_compare_rules != NULL)
+    {
+        free(global_compare_rules);
+    }
 }
 
 /* ================================================================================
@@ -865,8 +799,8 @@ int load_csv_with_header()
     file = fopen(data_file_path, "r");
     if (file == NULL)
     {
-        printf("Warning: Cannot open data file: %s (skipping this stock)\n", data_file_path);
-        return -1;  // エラーを返す（exit しない）
+        printf("Warning: Cannot open data file: %s (skipping this forex pair)\n", data_file_path);
+        return -1; // エラーを返す（exit しない）
     }
 
     /* ステップ1: 行数とカラム数を数える */
@@ -1004,7 +938,7 @@ int load_csv_with_header()
            timestamp_buffer[0], timestamp_buffer[Nrd - 1]);
     printf("  Minimum attributes per rule: %d\n", MIN_ATTRIBUTES);
 
-    return 0;  // 成功
+    return 0; // 成功
 }
 
 /* ================================================================================
@@ -1023,24 +957,20 @@ void create_output_directories()
     // ディレクトリを作成（Unixパーミッション755）
     // まず親ディレクトリ "output/" を作成
     mkdir("output", 0755);
-    mkdir(output_base_dir, 0755); // メインディレクトリ (例: output/1332)
-    mkdir(output_dir_il, 0755);   // ルールリスト
+    mkdir(output_base_dir, 0755); // メインディレクトリ
     mkdir(output_dir_ia, 0755);   // 分析レポート
     mkdir(output_dir_ib, 0755);   // バックアップ
     mkdir(output_dir_pool, 0755); // ルールプール
     mkdir(output_dir_doc, 0755);  // ドキュメント
-    mkdir(output_dir_vis, 0755);  // 可視化データ
 
     // ディレクトリ構造を表示
     printf("=== Directory Structure Created ===\n");
-    printf("Stock Code: %s\n", stock_code);
+    printf("Forex Pair: %s\n", forex_pair);
     printf("%s/\n", output_base_dir);
-    printf("├── IL/        (Rule Lists)\n");
     printf("├── IA/        (Analysis Reports)\n");
-    printf("├── IB/        (Backup Files with actual_X)\n");
-    printf("├── pool/      (Global Rule Pool with actual_X)\n");
-    printf("├── doc/       (Documentation)\n");
-    printf("└── vis/       (Visualization Data)\n");
+    printf("├── IB/        (Backup Files)\n");
+    printf("├── pool/      (Global Rule Pool)\n");
+    printf("└── doc/       (Documentation)\n");
     printf("===================================\n");
 
     // 時系列モードの設定を表示
@@ -1077,18 +1007,11 @@ void initialize_rule_pool()
         // 統計値の初期化
         rule_pool[i].x_mean = 0;
         rule_pool[i].x_sigma = 0;
-        rule_pool[i].actual_x_mean = 0;  // Phase 2追加
-        rule_pool[i].actual_x_sigma = 0; // Phase 2追加
         rule_pool[i].support_count = 0;
         rule_pool[i].negative_count = 0;
         rule_pool[i].high_support_flag = 0;
         rule_pool[i].low_variance_flag = 0;
         rule_pool[i].num_attributes = 0;
-
-        // カイ二乗関連の初期化
-        rule_pool[i].chi_squared = 0.0;
-        rule_pool[i].p_value = 1.0;
-        rule_pool[i].high_chi_square_flag = 0;
 
         // 時間統計の初期化
         initialize_temporal_statistics(&rule_pool[i].time_stats);
@@ -1174,7 +1097,6 @@ void initialize_global_counters()
     total_rule_count = 0;
     total_high_support = 0;
     total_low_variance = 0;
-    total_high_chi_square = 0;
 }
 
 /* ================================================================================
@@ -1349,8 +1271,6 @@ void initialize_individual_statistics()
                 // 統計値のクリア
                 x_sum[individual][k][i] = 0;
                 x_sigma_array[individual][k][i] = 0;
-                actual_x_sum[individual][k][i] = 0;         // Phase 2追加
-                actual_x_sigma_array[individual][k][i] = 0; // Phase 2追加
                 matched_time_count[individual][k][i] = 0;
 
                 // マッチした時点のインデックスをクリア
@@ -1379,14 +1299,12 @@ void initialize_individual_statistics()
 void evaluate_single_instance(int time_index)
 {
     double future_x;  // 予測対象（t+1の値）
-    double current_x; // 現在値（tの値、Phase 2で追加）
     int current_node_id, depth, match_flag;
     int time_delay, data_index;
     int individual, k;
 
-    // 予測対象と現在値を取得
+    // 予測対象を取得
     future_x = get_future_target_value(time_index);
-    current_x = get_current_actual_value(time_index); // Phase 2で追加
 
     // 全個体に対して評価を実行
     for (individual = 0; individual < Nkotai; individual++)
@@ -1443,10 +1361,6 @@ void evaluate_single_instance(int time_index)
                         // 予測値の累積
                         x_sum[individual][k][depth] += future_x;
                         x_sigma_array[individual][k][depth] += future_x * future_x;
-
-                        // 実際の値の累積（Phase 2で追加）
-                        actual_x_sum[individual][k][depth] += current_x;
-                        actual_x_sigma_array[individual][k][depth] += current_x * current_x;
 
                         // マッチした時点を記録
                         if (matched_time_count[individual][k][depth] < Nrd)
@@ -1551,22 +1465,6 @@ void calculate_rule_statistics()
                     }
 
                     x_sigma_array[individual][k][j] = sqrt(x_sigma_array[individual][k][j]);
-
-                    // 実際の値の平均を計算（Phase 2で追加）
-                    actual_x_sum[individual][k][j] /= (double)match_count[individual][k][j];
-
-                    // 実際の値の標準偏差を計算（Phase 2で追加）
-                    actual_x_sigma_array[individual][k][j] =
-                        actual_x_sigma_array[individual][k][j] / (double)match_count[individual][k][j] -
-                        actual_x_sum[individual][k][j] * actual_x_sum[individual][k][j];
-
-                    // 負の分散を防ぐ（数値誤差対策）
-                    if (actual_x_sigma_array[individual][k][j] < 0)
-                    {
-                        actual_x_sigma_array[individual][k][j] = 0;
-                    }
-
-                    actual_x_sigma_array[individual][k][j] = sqrt(actual_x_sigma_array[individual][k][j]);
                 }
             }
         }
@@ -1588,95 +1486,6 @@ double calculate_support_value(int matched_count, int negative_count_val)
     return (double)matched_count / (double)negative_count_val;
 }
 
-/**
- * Chi-square値を計算（時系列データ対応版）
- * 前件部（ルール）と後件部（予測値の高低）の独立性を検定
- *
- * @param individual 個体ID
- * @param k 処理ノードID
- * @param depth ルールの深さ
- * @return カイ二乗値（自由度1）
- */
-double calculate_chi_square(int individual, int k, int depth)
-{
-    int safe_start, safe_end;
-    int i, t;
-    double overall_mean = 0.0;
-    int total_count = 0;
-
-    // 全データの平均値を計算（後件部の閾値として使用）
-    get_safe_data_range(&safe_start, &safe_end);
-    for (t = safe_start; t < safe_end; t++)
-    {
-        double future_x = get_future_target_value(t);
-        overall_mean += future_x;
-        total_count++;
-    }
-
-    if (total_count == 0)
-        return 0.0;
-
-    overall_mean /= (double)total_count;
-
-    // 2x2分割表の要素を計算
-    // A: 前件部マッチ AND 後件部高（平均以上）
-    // B: 前件部マッチ AND 後件部低（平均未満）
-    // C: 前件部非マッチ AND 後件部高
-    // D: 前件部非マッチ AND 後件部低
-    int A = 0, B = 0, C = 0, D = 0;
-
-    // マッチしたインデックスのセットを作成
-    int *is_matched = (int *)calloc(Nrd, sizeof(int));
-    for (i = 0; i < matched_time_count[individual][k][depth]; i++)
-    {
-        int idx = matched_time_indices[individual][k][depth][i];
-        if (idx >= 0 && idx < Nrd)
-        {
-            is_matched[idx] = 1;
-        }
-    }
-
-    // 各時点での分類
-    for (t = safe_start; t < safe_end; t++)
-    {
-        double future_x = get_future_target_value(t);
-        int is_high = (future_x >= overall_mean) ? 1 : 0;
-
-        if (is_matched[t])
-        {
-            // 前件部マッチ
-            if (is_high)
-                A++;
-            else
-                B++;
-        }
-        else
-        {
-            // 前件部非マッチ
-            if (is_high)
-                C++;
-            else
-                D++;
-        }
-    }
-
-    free(is_matched);
-
-    // カイ二乗値の計算: χ² = N × (AD - BC)² / ((A+B)(C+D)(A+C)(B+D))
-    int N = A + B + C + D;
-    long long numerator_part = (long long)A * D - (long long)B * C;
-    double numerator = (double)N * numerator_part * numerator_part;
-
-    long long denominator = (long long)(A + B) * (C + D) * (A + C) * (B + D);
-
-    if (denominator == 0)
-        return 0.0;
-
-    double chi_squared = numerator / (double)denominator;
-
-    return chi_squared;
-}
-
 /* ================================================================================
    時間パターン分析関数
 
@@ -1696,8 +1505,6 @@ double calculate_chi_square(int individual, int k, int depth)
 void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k, int depth)
 {
     int i, idx;
-    double sum_x = 0.0;
-    double sum_xx = 0.0;
     int count = matched_time_count[individual][k][depth];
 
     // マッチがない場合は処理をスキップ
@@ -1880,24 +1687,13 @@ void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k
  * @param sigma_x 標準偏差
  * @param support サポート値
  * @param num_attributes 属性数
- * @param chi_squared カイ二乗値
  * @return 品質基準を満たす場合1、満たさない場合0
  */
-int check_rule_quality(double sigma_x, double support, int num_attributes, double chi_squared)
+int check_rule_quality(double sigma_x, double support, int num_attributes)
 {
-    int basic_quality = (sigma_x <= Maxsigx &&              // 標準偏差が閾値以下
-                         support >= Minsup &&               // サポート値が閾値以上
-                         num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
-
-    // Chi-square検定が有効な場合は追加の品質条件
-    if (CHI_SQUARE_ENABLED)
-    {
-        return basic_quality && (chi_squared >= MIN_CHI_SQUARED); // カイ二乗値が閾値以上
-    }
-    else
-    {
-        return basic_quality;
-    }
+    return (sigma_x <= Maxsigx &&              // 標準偏差が閾値以下
+            support >= Minsup &&               // サポート値が閾値以上
+            num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
 }
 
 /**
@@ -1940,22 +1736,18 @@ int check_rule_duplication(int *rule_candidate, int rule_count)
  * @param time_delays 時間遅延配列
  * @param x_mean 予測値の平均
  * @param x_sigma 予測値の標準偏差
- * @param actual_x_mean 実際の値の平均（Phase 2）
- * @param actual_x_sigma 実際の値の標準偏差（Phase 2）
  * @param support_count サポートカウント
  * @param negative_count_val ネガティブカウント
  * @param support_value サポート値
  * @param num_attributes 属性数
- * @param chi_squared カイ二乗値
  * @param individual 個体ID
  * @param k 処理ノードID
  * @param depth 深さ
  */
 void register_new_rule(struct trial_state *state, int *rule_candidate, int *time_delays,
                        double x_mean, double x_sigma,
-                       double actual_x_mean, double actual_x_sigma, // Phase 2で追加
                        int support_count, int negative_count_val, double support_value,
-                       int num_attributes, double chi_squared, // Chi-squareで追加
+                       int num_attributes,
                        int individual, int k, int depth)
 {
     int idx = state->rule_count;
@@ -1971,16 +1763,10 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
     // ルールの統計値を設定
     rule_pool[idx].x_mean = x_mean;
     rule_pool[idx].x_sigma = x_sigma;
-    rule_pool[idx].actual_x_mean = actual_x_mean;   // Phase 2で追加
-    rule_pool[idx].actual_x_sigma = actual_x_sigma; // Phase 2で追加
     rule_pool[idx].support_count = support_count;
     rule_pool[idx].negative_count = negative_count_val;
     rule_pool[idx].support_rate = support_value; // サポート率を保存
     rule_pool[idx].num_attributes = num_attributes;
-
-    // カイ二乗値を設定
-    rule_pool[idx].chi_squared = chi_squared;
-    rule_pool[idx].p_value = 1.0; // 未実装（将来的にはχ²分布から計算）
 
     // 時間パターンを分析
     analyze_temporal_patterns(&rule_pool[idx], individual, k, depth);
@@ -2009,19 +1795,6 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
     if (rule_pool[idx].low_variance_flag == 1)
     {
         state->low_variance_rule_count++;
-    }
-
-    // 高カイ二乗フラグの設定
-    int high_chi_square_marker = 0;
-    if (chi_squared >= HIGH_CHI_SQUARED)
-    {
-        high_chi_square_marker = 1;
-    }
-    rule_pool[idx].high_chi_square_flag = high_chi_square_marker;
-
-    if (rule_pool[idx].high_chi_square_flag == 1)
-    {
-        state->high_chi_square_rule_count++;
     }
 
     // ルールカウントを増やす
@@ -2099,7 +1872,6 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
         {
             // 現在の深さの統計を取得
             double sigma_x = x_sigma_array[individual][k][loop_j];
-            double actual_sigma_x = actual_x_sigma_array[individual][k][loop_j]; // Phase 2で追加
             int matched_count = match_count[individual][k][loop_j];
             double support = calculate_support_value(matched_count,
                                                      negative_count[individual][k][loop_j]);
@@ -2132,15 +1904,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // カイ二乗値を計算（CHI_SQUARE_ENABLED時のみ）
-            double chi_squared = 0.0;
-            if (CHI_SQUARE_ENABLED && matched_count > 0)
-            {
-                chi_squared = calculate_chi_square(individual, k, loop_j);
-            }
-
-            // ルールの品質チェック（chi-square条件を含む）
-            if (check_rule_quality(sigma_x, support, j2, chi_squared))
+            // ルールの品質チェック
+            if (check_rule_quality(sigma_x, support, j2))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {
@@ -2150,9 +1915,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 新規ルールとして登録
                         register_new_rule(state, rule_candidate, time_delay_memo,
                                           x_sum[individual][k][loop_j], sigma_x,
-                                          actual_x_sum[individual][k][loop_j], actual_sigma_x, // Phase 2で追加
                                           matched_count, negative_count[individual][k][loop_j],
-                                          support, j2, chi_squared, // Chi-squareで追加
+                                          support, j2,
                                           individual, k, loop_j);
 
                         // 属性数別カウントを更新
@@ -2644,7 +2408,7 @@ void export_rule_timeseries(int rule_idx, int trial_id)
         return;
 
     // CSVヘッダーを出力
-    fprintf(file, "Timestamp,X,X_mean,X_sigma,Actual_X_mean,Actual_X_sigma,Matched,Month,Quarter,DayOfWeek\n");
+    fprintf(file, "Timestamp,X,X_mean,X_sigma,Matched,Month,Quarter,DayOfWeek\n");
 
     // 全データポイントを出力
     for (i = 0; i < Nrd; i++)
@@ -2663,13 +2427,11 @@ void export_rule_timeseries(int rule_idx, int trial_id)
         }
 
         // データ行を出力
-        fprintf(file, "%s,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d\n",
+        fprintf(file, "%s,%.3f,%.3f,%.3f,%d,%d,%d,%d\n",
                 timestamp_buffer[i],
                 x_buffer[i],
                 rule_pool[rule_idx].x_mean,
                 rule_pool[rule_idx].x_sigma,
-                rule_pool[rule_idx].actual_x_mean,  // Phase 2で追加
-                rule_pool[rule_idx].actual_x_sigma, // Phase 2で追加
                 matched,
                 time_info_array[i].month,
                 time_info_array[i].quarter,
@@ -2708,18 +2470,16 @@ void create_trial_files(struct trial_state *state)
     file = fopen(state->filename_report, "w");
     if (file != NULL)
     {
-        fprintf(file, "Generation\tRules\tHighSup\tLowVar\tHighChi\tAvgFitness\tMin%dAttr\n", MIN_ATTRIBUTES);
+        fprintf(file, "Generation\tRules\tHighSup\tLowVar\tAvgFitness\tMin%dAttr\n", MIN_ATTRIBUTES);
         fclose(file);
     }
 
-    // ローカル詳細ファイルの作成（actual_X列とchi-square列を追加）
+    // ローカル詳細ファイルの作成
     file = fopen(state->filename_local, "w");
     if (file != NULL)
     {
         fprintf(file, "Attr1\tAttr2\tAttr3\tAttr4\tAttr5\tAttr6\tAttr7\tAttr8\t");
-        fprintf(file, "Actual_X_mean\tActual_X_sigma\t"); // Phase 2で追加
-        fprintf(file, "X_mean\tX_sigma\tsupport_count\tsupport_rate\tHighSup\tLowVar\t");
-        fprintf(file, "Chi_squared\tHighChi\tNumAttr\t"); // Chi-squareで追加
+        fprintf(file, "X_mean\tX_sigma\tsupport_count\tsupport_rate\tHighSup\tLowVar\tNumAttr\t");
         fprintf(file, "DomMonth\tDomQuarter\tDomDay\tTimeSpan\n");
         fclose(file);
     }
@@ -2784,23 +2544,21 @@ void write_progress_report(struct trial_state *state, int generation)
     fitness_average /= Nkotai;
 
     // レポート行を出力
-    fprintf(file, "%5d\t%5d\t%5d\t%5d\t%5d\t%9.3f\t%5d\n",
+    fprintf(file, "%5d\t%5d\t%5d\t%5d\t%9.3f\t%5d\n",
             generation,
             state->rule_count - 1,
             state->high_support_rule_count - 1,
             state->low_variance_rule_count - 1,
-            state->high_chi_square_rule_count - 1,
             fitness_average,
             rules_by_min_attributes);
 
     fclose(file);
 
     // コンソールにも出力
-    printf("  Gen.=%5d: %5d rules (%5d high-sup, %5d low-var, %5d high-chi, %5d min-%d-attr)\n",
+    printf("  Gen.=%5d: %5d rules (%5d high-sup, %5d low-var, %5d min-%d-attr)\n",
            generation, state->rule_count - 1,
            state->high_support_rule_count - 1,
            state->low_variance_rule_count - 1,
-           state->high_chi_square_rule_count - 1,
            rules_by_min_attributes,
            MIN_ATTRIBUTES);
 
@@ -2848,11 +2606,6 @@ void write_local_output(struct trial_state *state)
             }
         }
 
-        // actual_Xの統計（Phase 2で追加）
-        fprintf(file, "%8.3f\t%5.3f\t",
-                rule_pool[i].actual_x_mean,
-                rule_pool[i].actual_x_sigma);
-
         // 予測値の統計
         fprintf(file, "%8.3f\t%5.3f\t%d\t%6.4f\t%2d\t%2d\t",
                 rule_pool[i].x_mean,
@@ -2862,10 +2615,8 @@ void write_local_output(struct trial_state *state)
                 rule_pool[i].high_support_flag,
                 rule_pool[i].low_variance_flag);
 
-        // カイ二乗統計
-        fprintf(file, "%8.3f\t%2d\t%d\t",
-                rule_pool[i].chi_squared,
-                rule_pool[i].high_chi_square_flag,
+        // 属性数と時間パターン
+        fprintf(file, "%d\t",
                 rule_pool[i].num_attributes);
 
         // 時間パターン
@@ -2880,9 +2631,84 @@ void write_local_output(struct trial_state *state)
 }
 
 /**
+ * 現在の試行のルールをグローバルプールに統合
+ * 重複するルールは除外し、新しいルールのみを追加
+ * @param state 試行状態
+ */
+void merge_trial_rules_to_global_pool(struct trial_state *state)
+{
+    int i, j, k;
+    int is_duplicate;
+
+    // 現在の試行の各ルールについて
+    for (i = 1; i < state->rule_count; i++)
+    {
+        is_duplicate = 0;
+
+        // 既存のグローバルプール内のルールと比較
+        for (j = 0; j < global_rule_count; j++)
+        {
+            int attr_match = 1;
+
+            // 属性リストが一致するか確認
+            for (k = 0; k < MAX_ATTRIBUTES; k++)
+            {
+                if (rule_pool[i].antecedent_attrs[k] != global_rule_pool[j].antecedent_attrs[k] ||
+                    rule_pool[i].time_delays[k] != global_rule_pool[j].time_delays[k])
+                {
+                    attr_match = 0;
+                    break;
+                }
+            }
+
+            // 完全一致する場合は重複とみなす
+            if (attr_match)
+            {
+                is_duplicate = 1;
+                break;
+            }
+        }
+
+        // 重複していない場合のみグローバルプールに追加
+        if (!is_duplicate)
+        {
+            // matched_indicesポインタを一時保存（構造体コピーで上書きされないように）
+            int *temp_indices = global_rule_pool[global_rule_count].matched_indices;
+
+            // ルール全体をコピー
+            global_rule_pool[global_rule_count] = rule_pool[i];
+
+            // matched_indicesポインタを元に戻す
+            global_rule_pool[global_rule_count].matched_indices = temp_indices;
+
+            // matched_indicesの内容を個別にコピー
+            for (k = 0; k < rule_pool[i].support_count; k++)
+            {
+                global_rule_pool[global_rule_count].matched_indices[k] = rule_pool[i].matched_indices[k];
+            }
+
+            // 統計カウンタを更新
+            if (global_rule_pool[global_rule_count].high_support_flag)
+                global_high_support_count++;
+            if (global_rule_pool[global_rule_count].low_variance_flag)
+                global_low_variance_count++;
+
+            global_rule_count++;
+
+            // バッファオーバーフロー防止
+            if (global_rule_count >= Nrulemax * Ntry)
+            {
+                printf("警告: グローバルルールプールが上限に達しました\n");
+                return;
+            }
+        }
+    }
+}
+
+/**
  * グローバルルールプールを出力
  * 全試行を通じたルールプールを2つの形式で出力
- * @param state 試行状態
+ * @param state 試行状態（引数としては使用しないが互換性のため保持）
  */
 void write_global_pool(struct trial_state *state)
 {
@@ -2895,19 +2721,17 @@ void write_global_pool(struct trial_state *state)
     {
         // ヘッダー行
         fprintf(file_a, "Attr1\tAttr2\tAttr3\tAttr4\tAttr5\tAttr6\tAttr7\tAttr8\t");
-        fprintf(file_a, "Actual_X_mean\tActual_X_sigma\t"); // Phase 2で追加
-        fprintf(file_a, "X_mean\tX_sigma\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\t");
-        fprintf(file_a, "Chi_squared\tHighChi\tNumAttr\t"); // Chi-squareで追加
+        fprintf(file_a, "X_mean\tX_sigma\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\t");
         fprintf(file_a, "Month\tQuarter\tDay\tStart\tEnd\n");
 
-        // 全ルールを出力
-        for (i = 1; i < state->rule_count; i++)
+        // グローバルプールの全ルールを出力
+        for (i = 0; i < global_rule_count; i++)
         {
             // 属性と遅延
             for (j = 0; j < MAX_ATTRIBUTES; j++)
             {
-                int attr = rule_pool[i].antecedent_attrs[j];
-                int delay = rule_pool[i].time_delays[j];
+                int attr = global_rule_pool[i].antecedent_attrs[j];
+                int delay = global_rule_pool[i].time_delays[j];
 
                 if (attr > 0)
                 {
@@ -2919,31 +2743,24 @@ void write_global_pool(struct trial_state *state)
                 }
             }
 
-            // actual_Xの統計（Phase 2で追加）
-            fprintf(file_a, "%8.3f\t%5.3f\t",
-                    rule_pool[i].actual_x_mean,
-                    rule_pool[i].actual_x_sigma);
-
             // 予測値の統計
             fprintf(file_a, "%8.3f\t%5.3f\t%d\t%6.4f\t%d\t%d\t%d\t",
-                    rule_pool[i].x_mean, rule_pool[i].x_sigma,
-                    rule_pool[i].support_count, rule_pool[i].support_rate,
-                    rule_pool[i].negative_count,
-                    rule_pool[i].high_support_flag, rule_pool[i].low_variance_flag);
+                    global_rule_pool[i].x_mean, global_rule_pool[i].x_sigma,
+                    global_rule_pool[i].support_count, global_rule_pool[i].support_rate,
+                    global_rule_pool[i].negative_count,
+                    global_rule_pool[i].high_support_flag, global_rule_pool[i].low_variance_flag);
 
-            // カイ二乗統計
-            fprintf(file_a, "%8.3f\t%d\t%d\t",
-                    rule_pool[i].chi_squared,
-                    rule_pool[i].high_chi_square_flag,
-                    rule_pool[i].num_attributes);
+            // 属性数と時間パターン
+            fprintf(file_a, "%d\t",
+                    global_rule_pool[i].num_attributes);
 
             // 時間パターン
             fprintf(file_a, "%d\t%d\t%d\t%s\t%s\n",
-                    rule_pool[i].dominant_month,
-                    rule_pool[i].dominant_quarter,
-                    rule_pool[i].dominant_day_of_week,
-                    rule_pool[i].start_date,
-                    rule_pool[i].end_date);
+                    global_rule_pool[i].dominant_month,
+                    global_rule_pool[i].dominant_quarter,
+                    global_rule_pool[i].dominant_day_of_week,
+                    global_rule_pool[i].start_date,
+                    global_rule_pool[i].end_date);
         }
 
         fclose(file_a);
@@ -2952,24 +2769,23 @@ void write_global_pool(struct trial_state *state)
     /* ファイルB：要約版（読みやすい形式） */
     if (file_b != NULL)
     {
-        fprintf(file_b, "# Rule Pool Summary with Temporal Patterns, Actual X Values, and Chi-square\n");
-        fprintf(file_b, "# Total Rules: %d\n", state->rule_count - 1);
-        fprintf(file_b, "# High Support: %d\n", state->high_support_rule_count - 1);
-        fprintf(file_b, "# Low Variance: %d\n", state->low_variance_rule_count - 1);
-        fprintf(file_b, "# High Chi-square (>%.2f): %d\n", HIGH_CHI_SQUARED, state->high_chi_square_rule_count - 1);
-        fprintf(file_b, "# Min %d Attributes: %d\n", MIN_ATTRIBUTES, rules_by_min_attributes);
+        fprintf(file_b, "# Global Rule Pool Summary (Integrated from All Trials)\n");
+        fprintf(file_b, "# Total Rules: %d\n", global_rule_count);
+        fprintf(file_b, "# High Support: %d\n", global_high_support_count);
+        fprintf(file_b, "# Low Variance: %d\n", global_low_variance_count);
         fprintf(file_b, "\n");
 
         // 最初の10ルールを例示
-        for (i = 1; i < state->rule_count && i < 10; i++)
+        int display_limit = (global_rule_count < 10) ? global_rule_count : 10;
+        for (i = 0; i < display_limit; i++)
         {
-            fprintf(file_b, "Rule %d (%d attrs): ", i, rule_pool[i].num_attributes);
+            fprintf(file_b, "Rule %d (%d attrs): ", i + 1, global_rule_pool[i].num_attributes);
 
             // 属性と遅延を出力
             for (j = 0; j < MAX_ATTRIBUTES; j++)
             {
-                int attr = rule_pool[i].antecedent_attrs[j];
-                int delay = rule_pool[i].time_delays[j];
+                int attr = global_rule_pool[i].antecedent_attrs[j];
+                int delay = global_rule_pool[i].time_delays[j];
 
                 if (attr > 0)
                 {
@@ -2978,17 +2794,13 @@ void write_global_pool(struct trial_state *state)
             }
 
             fprintf(file_b, "\n");
-            fprintf(file_b, "   => Actual_X: %.3f±%.3f, Predicted_X: %.3f±%.3f\n",
-                    rule_pool[i].actual_x_mean, rule_pool[i].actual_x_sigma,
-                    rule_pool[i].x_mean, rule_pool[i].x_sigma);
-            fprintf(file_b, "   Chi-square: %.3f (%.1f%% significance)\n",
-                    rule_pool[i].chi_squared,
-                    rule_pool[i].chi_squared >= HIGH_CHI_SQUARED ? 99.0 : (rule_pool[i].chi_squared >= MIN_CHI_SQUARED ? 95.0 : 0.0));
+            fprintf(file_b, "   => Predicted_X: %.3f±%.3f\n",
+                    global_rule_pool[i].x_mean, global_rule_pool[i].x_sigma);
             fprintf(file_b, "   Temporal: Month=%d, Quarter=Q%d, Day=%d, Span=%d days\n",
-                    rule_pool[i].dominant_month,
-                    rule_pool[i].dominant_quarter,
-                    rule_pool[i].dominant_day_of_week,
-                    rule_pool[i].time_span_days);
+                    global_rule_pool[i].dominant_month,
+                    global_rule_pool[i].dominant_quarter,
+                    global_rule_pool[i].dominant_day_of_week,
+                    global_rule_pool[i].time_span_days);
         }
 
         fclose(file_b);
@@ -3007,18 +2819,16 @@ void write_document_stats(struct trial_state *state)
     if (file != NULL)
     {
         // 試行の統計情報を出力
-        fprintf(file, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.2f\n",
-                state->trial_id - Nstart + 1,          // 試行番号（1から）
-                state->rule_count - 1,                 // ルール数
-                state->high_support_rule_count - 1,    // 高サポートルール数
-                state->low_variance_rule_count - 1,    // 低分散ルール数
-                state->high_chi_square_rule_count - 1, // 高カイ二乗ルール数
-                total_rule_count,                      // 累積ルール数
-                total_high_support,                    // 累積高サポート数
-                total_low_variance,                    // 累積低分散数
-                total_high_chi_square,                 // 累積高カイ二乗数
-                rules_by_min_attributes,               // 最小属性数を満たすルール数
-                state->elapsed_time);                  // 経過時間（秒）
+        fprintf(file, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.2f\n",
+                state->trial_id - Nstart + 1,       // 試行番号（1から）
+                state->rule_count - 1,              // ルール数
+                state->high_support_rule_count - 1, // 高サポートルール数
+                state->low_variance_rule_count - 1, // 低分散ルール数
+                total_rule_count,                   // 累積ルール数
+                total_high_support,                 // 累積高サポート数
+                total_low_variance,                 // 累積低分散数
+                rules_by_min_attributes,            // 最小属性数を満たすルール数
+                state->elapsed_time);               // 経過時間（秒）
         fclose(file);
     }
 }
@@ -3068,7 +2878,7 @@ void initialize_document_file()
     if (file != NULL)
     {
         // TSV形式のヘッダーを出力
-        fprintf(file, "Trial\tRules\tHighSup\tLowVar\tHighChi\tTotal\tTotalHigh\tTotalLow\tTotalHighChi\tMin%dAttr\tTime(sec)\n",
+        fprintf(file, "Trial\tRules\tHighSup\tLowVar\tTotal\tTotalHigh\tTotalLow\tMin%dAttr\tTime(sec)\n",
                 MIN_ATTRIBUTES);
         fclose(file);
     }
@@ -3094,7 +2904,6 @@ void print_final_statistics()
     printf("  Delay range: t-%d to t-%d\n", MIN_TIME_DELAY, MAX_TIME_DELAY_PHASE2);
     printf("  Prediction span: t+%d\n", PREDICTION_SPAN);
     printf("  Minimum attributes: %d\n", MIN_ATTRIBUTES);
-    printf("  Chi-square enabled: %s (min=%.2f)\n", CHI_SQUARE_ENABLED ? "Yes" : "No", MIN_CHI_SQUARED);
     printf("========================================\n");
 
     /* データ統計 */
@@ -3130,7 +2939,6 @@ void print_final_statistics()
     printf("\nTotal Rules Discovered: %d\n", total_rule_count);
     printf("High-Support Rules: %d\n", total_high_support);
     printf("Low-Variance Rules: %d\n", total_low_variance);
-    printf("High Chi-square Rules (>%.2f): %d\n", HIGH_CHI_SQUARED, total_high_chi_square);
     printf("Rules with %d+ attributes: %d\n", MIN_ATTRIBUTES, rules_by_min_attributes);
     printf("========================================\n");
 }
@@ -3138,27 +2946,27 @@ void print_final_statistics()
 /* ================================================================================
    パス設定関数
 
-   銘柄コードに基づいて、入力ファイルと出力ディレクトリのパスを設定します。
+   通貨ペアコードに基づいて、入力ファイルと出力ディレクトリのパスを設定します。
    ================================================================================
 */
 
 /**
- * 銘柄コードに基づいてファイルパスとディレクトリを設定
- * @param code 銘柄コード（例: "7203"）
+ * 通貨ペアコードに基づいてファイルパスとディレクトリを設定
+ * @param code 通貨ペアコード（例: "7203"）
  */
-void setup_paths_for_stock(const char *code)
+void setup_paths_for_forex(const char *code)
 {
-    // 銘柄コードをコピー
-    strncpy(stock_code, code, sizeof(stock_code) - 1);
-    stock_code[sizeof(stock_code) - 1] = '\0';
+    // 通貨ペアコードをコピー
+    strncpy(forex_pair, code, sizeof(forex_pair) - 1);
+    forex_pair[sizeof(forex_pair) - 1] = '\0';
 
     // データファイルパスを設定
     snprintf(data_file_path, sizeof(data_file_path),
-             "nikkei225_data/gnminer_individual/%s.txt", stock_code);
+             "forex_data/gnminer_individual/%s.txt", forex_pair);
 
-    // 出力ベースディレクトリを設定（output/配下に銘柄ごとに分ける）
+    // 出力ベースディレクトリを設定（output/配下に通貨ペアごとに分ける）
     snprintf(output_base_dir, sizeof(output_base_dir),
-             "output/%s", stock_code);
+             "output/%s", forex_pair);
 
     // 各サブディレクトリのパスを設定
     snprintf(output_dir_il, sizeof(output_dir_il),
@@ -3183,40 +2991,40 @@ void setup_paths_for_stock(const char *code)
              "%s/doc/zrd01.txt", output_base_dir);
 
     printf("\n=== Path Configuration ===\n");
-    printf("Stock Code: %s\n", stock_code);
+    printf("Forex Pair: %s\n", forex_pair);
     printf("Input File: %s\n", data_file_path);
     printf("Output Dir: %s\n", output_base_dir);
     printf("=========================\n\n");
 }
 
 /* ================================================================================
-   単一銘柄処理関数
+   単一通貨ペア処理関数
 
-   指定された銘柄に対して全試行を実行します。
+   指定された通貨ペアに対して全試行を実行します。
    ================================================================================
 */
 
 /**
- * 単一銘柄の分析を実行
- * @param code 銘柄コード
+ * 単一通貨ペアの分析を実行
+ * @param code 通貨ペアコード
  * @return 成功時0、失敗時1
  */
-int process_single_stock(const char *code)
+int process_single_forex(const char *code)
 {
     int trial, gen, i, prev_count;
     struct trial_state state;
-    clock_t stock_start_time, stock_end_time;
+    clock_t forex_start_time, forex_end_time;
 
-    // 銘柄の処理開始時刻を記録
-    stock_start_time = clock();
+    // 通貨ペアの処理開始時刻を記録
+    forex_start_time = clock();
 
     printf("\n");
     printf("##################################################\n");
-    printf("##  Processing Stock: %s\n", code);
+    printf("##  Processing Forex Pair: %s\n", code);
     printf("##################################################\n");
 
     // パス設定
-    setup_paths_for_stock(code);
+    setup_paths_for_forex(code);
 
     // 出力ディレクトリ構造を作成
     create_output_directories();
@@ -3225,12 +3033,17 @@ int process_single_stock(const char *code)
     if (load_csv_with_header() != 0)
     {
         // ファイルが存在しない場合はスキップ
-        printf("Skipping stock %s (data file not found)\n\n", code);
-        return 1;  // 失敗を返す（次の銘柄へ）
+        printf("Skipping forex pair %s (data file not found)\n\n", code);
+        return 1; // 失敗を返す（次の通貨ペアへ）
     }
 
     // グローバルカウンタを初期化
     initialize_global_counters();
+
+    // グローバルルールプールを初期化（全試行統合用）
+    global_rule_count = 0;
+    global_high_support_count = 0;
+    global_low_variance_count = 0;
 
     // ドキュメントファイルを初期化
     initialize_document_file();
@@ -3249,7 +3062,6 @@ int process_single_stock(const char *code)
         state.rule_count = 1; // インデックス0は未使用
         state.high_support_rule_count = 1;
         state.low_variance_rule_count = 1;
-        state.high_chi_square_rule_count = 1;
         state.generation = 0;
         state.elapsed_time = 0.0;
 
@@ -3262,9 +3074,8 @@ int process_single_stock(const char *code)
         printf("\n========== Trial %d/%d Started ==========\n", trial - Nstart + 1, Ntry);
         if (TIMESERIES_MODE && ADAPTIVE_DELAY)
         {
-            printf("  [Time-Series Mode Phase 2: Temporal Analysis with actual_X + Chi-square]\n");
-            printf("  [Minimum attributes: %d, Chi-square enabled: %s]\n",
-                   MIN_ATTRIBUTES, CHI_SQUARE_ENABLED ? "Yes" : "No");
+            printf("  [Time-Series Mode: Temporal Pattern Analysis]\n");
+            printf("  [Minimum attributes: %d]\n", MIN_ATTRIBUTES);
         }
 
         // 各種データ構造を初期化
@@ -3315,14 +3126,7 @@ int process_single_stock(const char *code)
             // 新規ルールをファイルに出力
             for (i = prev_count + 1; i < state.rule_count; i++)
             {
-                // ルールリストに追記
-                write_rule_to_file(&state, i);
-
-                // 最初の10ルールは可視化用データも出力
-                if (i <= 10)
-                {
-                    export_rule_timeseries(i, trial);
-                }
+                // (IL/visディレクトリへの出力は削除されました)
             }
 
             // 現在のルール数を記録
@@ -3375,8 +3179,8 @@ int process_single_stock(const char *code)
         // 統計情報を記録
         write_document_stats(&state);
 
-        // グローバルプールを更新
-        write_global_pool(&state);
+        // 現在の試行のルールをグローバルプールに統合
+        merge_trial_rules_to_global_pool(&state);
 
         // ローカル詳細ファイルに全ルールを出力（IB）
         write_local_output(&state);
@@ -3384,13 +3188,20 @@ int process_single_stock(const char *code)
         // 試行終了メッセージ
         printf("========== Trial %d/%d Completed (%.2fs) ==========\n",
                trial - Nstart + 1, Ntry, state.elapsed_time);
-        printf("  Total rules: %d\n", state.rule_count - 1);
+        printf("  Trial rules: %d\n", state.rule_count - 1);
+        printf("  Global pool rules: %d (accumulated)\n", global_rule_count);
         printf("  High-support rules: %d\n", state.high_support_rule_count - 1);
         printf("  Low-variance rules: %d\n", state.low_variance_rule_count - 1);
-        printf("  High Chi-square rules: %d\n", state.high_chi_square_rule_count - 1);
     }
 
     /* ========== 最終処理 ========== */
+
+    // 全試行を統合したグローバルプールを出力
+    printf("\n========== Writing Global Rule Pool ==========\n");
+    printf("  Total integrated rules: %d\n", global_rule_count);
+    printf("  High-support rules: %d\n", global_high_support_count);
+    printf("  Low-variance rules: %d\n", global_low_variance_count);
+    write_global_pool(&state);
 
     // 全試行の統計を表示
     print_final_statistics();
@@ -3398,13 +3209,13 @@ int process_single_stock(const char *code)
     // メモリ解放
     free_dynamic_memory();
 
-    // 銘柄の処理終了時刻を記録
-    stock_end_time = clock();
-    double stock_elapsed = (double)(stock_end_time - stock_start_time) / CLOCKS_PER_SEC;
+    // 通貨ペアの処理終了時刻を記録
+    forex_end_time = clock();
+    double forex_elapsed = (double)(forex_end_time - forex_start_time) / CLOCKS_PER_SEC;
 
     printf("\n");
     printf("##################################################\n");
-    printf("##  Stock %s Completed (%.2fs)\n", code, stock_elapsed);
+    printf("##  Forex Pair %s Completed (%.2fs)\n", code, forex_elapsed);
     printf("##################################################\n");
     printf("\n");
 
@@ -3421,14 +3232,14 @@ int process_single_stock(const char *code)
 
 /**
  * プログラムのメイン関数
- * 時系列株価予測のためのGNMinerを実行
+ * 時系列為替レート予測のためのGNMinerを実行
  * @param argc コマンドライン引数の数
  * @param argv コマンドライン引数の配列
  * @return 終了ステータス（0:正常終了）
  */
 int main(int argc, char *argv[])
 {
-    int stock_idx;
+    int forex_idx;
     int success_count = 0;
     int failed_count = 0;
     clock_t batch_start_time, batch_end_time;
@@ -3443,19 +3254,19 @@ int main(int argc, char *argv[])
     if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0))
     {
         printf("==============================================\n");
-        printf("  GNMiner Phase 2 - Time-Series Stock Predictor\n");
+        printf("  GNMiner Phase 2 - Time-Series Forex Predictor\n");
         printf("==============================================\n\n");
         printf("Usage: %s [options]\n\n", argv[0]);
         printf("Options:\n");
         printf("  -h, --help    Show this help message\n");
-        printf("  --all         Process all Nikkei 225 stocks (%d stocks)\n", NIKKEI_225_COUNT);
-        printf("  <stock_code>  Process single stock code (e.g., 7203)\n");
-        printf("                If omitted, processes all stocks\n\n");
+        printf("  --all         Process all forex pairs (%d pairs)\n", FOREX_PAIRS_COUNT);
+        printf("  <forex_pair>  Process single forex pair (e.g., USDJPY)\n");
+        printf("                If omitted, processes all forex pairs\n\n");
         printf("Examples:\n");
-        printf("  %s           # Process all %d stocks\n", argv[0], NIKKEI_225_COUNT);
-        printf("  %s --all     # Process all %d stocks\n", argv[0], NIKKEI_225_COUNT);
-        printf("  %s 7203      # Process only Toyota (7203)\n", argv[0]);
-        printf("  %s 9984      # Process only SoftBank (9984)\n\n", argv[0]);
+        printf("  %s           # Process all %d forex pairs\n", argv[0], FOREX_PAIRS_COUNT);
+        printf("  %s --all     # Process all %d forex pairs\n", argv[0], FOREX_PAIRS_COUNT);
+        printf("  %s USDJPY    # Process only USD/JPY\n", argv[0]);
+        printf("  %s EURUSD    # Process only EUR/USD\n\n", argv[0]);
         printf("==============================================\n");
         return 0;
     }
@@ -3475,39 +3286,39 @@ int main(int argc, char *argv[])
     // バッチ処理開始
     batch_start_time = clock();
 
-    // 単一銘柄モードか全銘柄モードかを判定
+    // 単一通貨ペアモードか全通貨ペアモードかを判定
     if (argc > 1 && strcmp(argv[1], "--all") != 0)
     {
-        // 単一銘柄モード
-        const char *stock_code_arg = argv[1];
+        // 単一通貨ペアモード
+        const char *forex_pair_arg = argv[1];
 
         printf("\n");
         printf("==================================================\n");
-        printf("  GNMiner Phase 2 - Single Stock Mode\n");
+        printf("  GNMiner Phase 2 - Single Forex Pair Mode\n");
         printf("==================================================\n");
-        printf("Stock Code: %s\n", stock_code_arg);
+        printf("Forex Pair: %s\n", forex_pair_arg);
         printf("Log File: %s\n", batch_log_filename);
         printf("==================================================\n");
         printf("\n");
 
         if (batch_log_file != NULL)
         {
-            fprintf(batch_log_file, "Single Stock Mode\n");
-            fprintf(batch_log_file, "Stock Code: %s\n", stock_code_arg);
+            fprintf(batch_log_file, "Single Forex Pair Mode\n");
+            fprintf(batch_log_file, "Forex Pair: %s\n", forex_pair_arg);
             fprintf(batch_log_file, "Start Time: %04d-%02d-%02d %02d:%02d:%02d\n\n",
                     tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday,
                     tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
         }
 
-        // 単一銘柄を処理
-        int result = process_single_stock(stock_code_arg);
+        // 単一通貨ペアを処理
+        int result = process_single_forex(forex_pair_arg);
 
         if (result == 0)
         {
             success_count = 1;
             if (batch_log_file != NULL)
             {
-                fprintf(batch_log_file, "SUCCESS: %s\n", stock_code_arg);
+                fprintf(batch_log_file, "SUCCESS: %s\n", forex_pair_arg);
             }
         }
         else
@@ -3515,18 +3326,18 @@ int main(int argc, char *argv[])
             failed_count = 1;
             if (batch_log_file != NULL)
             {
-                fprintf(batch_log_file, "FAILED: %s\n", stock_code_arg);
+                fprintf(batch_log_file, "FAILED: %s\n", forex_pair_arg);
             }
         }
     }
     else
     {
-        // 全銘柄モード
+        // 全通貨ペアモード
         printf("\n");
         printf("==================================================\n");
         printf("  GNMiner Phase 2 - Batch Processing Mode\n");
         printf("==================================================\n");
-        printf("Total Stocks: %d (Nikkei 225)\n", NIKKEI_225_COUNT);
+        printf("Total Forex Pairs: %d\n", FOREX_PAIRS_COUNT);
         printf("Log File: %s\n", batch_log_filename);
         printf("==================================================\n");
         printf("\n");
@@ -3534,35 +3345,35 @@ int main(int argc, char *argv[])
         if (batch_log_file != NULL)
         {
             fprintf(batch_log_file, "Batch Processing Mode\n");
-            fprintf(batch_log_file, "Total Stocks: %d\n", NIKKEI_225_COUNT);
+            fprintf(batch_log_file, "Total Forex Pairs: %d\n", FOREX_PAIRS_COUNT);
             fprintf(batch_log_file, "Start Time: %04d-%02d-%02d %02d:%02d:%02d\n\n",
                     tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday,
                     tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
         }
 
-        // 全銘柄を順次処理
-        for (stock_idx = 0; NIKKEI_225_STOCKS[stock_idx] != NULL; stock_idx++)
+        // 全通貨ペアを順次処理
+        for (forex_idx = 0; FOREX_PAIRS[forex_idx] != NULL; forex_idx++)
         {
-            const char *current_stock = NIKKEI_225_STOCKS[stock_idx];
+            const char *current_pair = FOREX_PAIRS[forex_idx];
 
             printf("\n");
             printf("==================================================\n");
-            printf("  [%d/%d] Processing: %s\n", stock_idx + 1, NIKKEI_225_COUNT, current_stock);
+            printf("  [%d/%d] Processing: %s\n", forex_idx + 1, FOREX_PAIRS_COUNT, current_pair);
             printf("==================================================\n");
 
             if (batch_log_file != NULL)
             {
-                fprintf(batch_log_file, "\n[%d/%d] Stock: %s\n", stock_idx + 1, NIKKEI_225_COUNT, current_stock);
+                fprintf(batch_log_file, "\n[%d/%d] Forex Pair: %s\n", forex_idx + 1, FOREX_PAIRS_COUNT, current_pair);
                 fflush(batch_log_file);
             }
 
-            // 銘柄を処理
-            int result = process_single_stock(current_stock);
+            // 通貨ペアを処理
+            int result = process_single_forex(current_pair);
 
             if (result == 0)
             {
                 success_count++;
-                printf("✓ SUCCESS: %s\n", current_stock);
+                printf("✓ SUCCESS: %s\n", current_pair);
                 if (batch_log_file != NULL)
                 {
                     fprintf(batch_log_file, "Result: SUCCESS\n");
@@ -3571,7 +3382,7 @@ int main(int argc, char *argv[])
             else
             {
                 failed_count++;
-                printf("✗ FAILED: %s\n", current_stock);
+                printf("✗ FAILED: %s\n", current_pair);
                 if (batch_log_file != NULL)
                 {
                     fprintf(batch_log_file, "Result: FAILED\n");
@@ -3582,8 +3393,8 @@ int main(int argc, char *argv[])
             printf("\n");
             printf("--------------------------------------------------\n");
             printf("Progress: %d/%d (%.1f%%)\n",
-                   stock_idx + 1, NIKKEI_225_COUNT,
-                   ((double)(stock_idx + 1) / NIKKEI_225_COUNT) * 100.0);
+                   forex_idx + 1, FOREX_PAIRS_COUNT,
+                   ((double)(forex_idx + 1) / FOREX_PAIRS_COUNT) * 100.0);
             printf("Success: %d | Failed: %d\n", success_count, failed_count);
             printf("--------------------------------------------------\n");
             printf("\n");
@@ -3602,8 +3413,8 @@ int main(int argc, char *argv[])
     printf("  Batch Processing Complete\n");
     printf("==================================================\n");
     printf("Total Time: %.2fs (%.1fm)\n", total_elapsed, total_elapsed / 60.0);
-    printf("Success: %d stocks\n", success_count);
-    printf("Failed: %d stocks\n", failed_count);
+    printf("Success: %d forex pairs\n", success_count);
+    printf("Failed: %d forex pairs\n", failed_count);
     printf("Success Rate: %.1f%%\n",
            (double)success_count / (success_count + failed_count) * 100.0);
     printf("Log File: %s\n", batch_log_filename);
@@ -3616,8 +3427,8 @@ int main(int argc, char *argv[])
         fprintf(batch_log_file, "\n");
         fprintf(batch_log_file, "===== Batch Processing Complete =====\n");
         fprintf(batch_log_file, "Total Time: %.2fs (%.1fm)\n", total_elapsed, total_elapsed / 60.0);
-        fprintf(batch_log_file, "Success: %d stocks\n", success_count);
-        fprintf(batch_log_file, "Failed: %d stocks\n", failed_count);
+        fprintf(batch_log_file, "Success: %d forex pairs\n", success_count);
+        fprintf(batch_log_file, "Failed: %d forex pairs\n", failed_count);
         fprintf(batch_log_file, "Success Rate: %.1f%%\n",
                 (double)success_count / (success_count + failed_count) * 100.0);
         fclose(batch_log_file);

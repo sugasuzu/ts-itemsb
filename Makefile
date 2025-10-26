@@ -14,9 +14,9 @@ all: $(TARGET)
 $(TARGET): $(SOURCE)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE) $(LDFLAGS)
 
-# Run the program
+# Run the program (process all 20 forex pairs)
 run: $(TARGET)
-	./$(TARGET)
+	./$(TARGET) --all
 
 # Clean build artifacts
 clean:
@@ -24,7 +24,7 @@ clean:
 
 # Create output directories
 setup:
-	mkdir -p output/IL output/IA output/IT output/IB output/pool output/doc
+	mkdir -p output/IA output/IB output/pool output/doc
 
 # Full build and setup
 install: clean $(TARGET) setup
