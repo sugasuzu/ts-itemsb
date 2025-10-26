@@ -1,0 +1,69 @@
+================================================================================
+Forex Rule Mining - Comprehensive Analysis Report
+================================================================================
+
+【データセット情報】
+Total Rules: 40
+Forex Pairs: USDJPY, EURAUD, GBPCAD, AUDNZD
+Rules per Pair: 10.0
+
+【統計サマリー】
+       support_rate  X_mean_rule  X_sigma_rule    n_matches
+count     40.000000    40.000000     40.000000    40.000000
+mean       0.407905     0.003850      0.513700  1679.725000
+std        0.010195     0.008992      0.081875    42.230738
+min        0.393900    -0.014000      0.373000  1623.000000
+25%        0.404400    -0.001000      0.469750  1665.000000
+50%        0.404600     0.003000      0.546000  1667.000000
+75%        0.412000     0.009000      0.574750  1697.000000
+max        0.430900     0.029000      0.623000  1776.000000
+
+【通貨ペア別統計】
+           support_rate           X_mean_rule           X_sigma_rule          
+                   mean       std        mean       std         mean       std
+forex_pair                                                                    
+AUDNZD          0.41088  0.008483     -0.0041  0.006540       0.3800  0.005312
+EURAUD          0.41018  0.012068      0.0036  0.005700       0.5701  0.014836
+GBPCAD          0.40340  0.007313      0.0047  0.004001       0.5253  0.013158
+USDJPY          0.40716  0.011855      0.0112  0.011312       0.5794  0.016887
+
+【時系列パターン】
+Dominant Month:
+dominant_month
+3     9
+4     1
+5    18
+6     6
+7     6
+
+Dominant Quarter:
+dominant_quarter
+1     5
+2     6
+3    18
+4    11
+
+Dominant Day of Week:
+dominant_day
+1    14
+2    10
+3     8
+4     8
+
+【予測統計】
+Average SNR: 0.015
+Positive predictions: 28 (70.0%)
+Negative predictions: 11 (27.5%)
+Neutral predictions: 1 (2.5%)
+
+【トップ5ルール（Support Rate順）】
+forex_pair  rule_idx  support_rate  X_mean_rule  X_sigma_rule  n_matches
+    EURAUD     15980        0.4309        0.002         0.578       1773
+    USDJPY     12118        0.4306        0.018         0.567       1776
+    EURAUD      3062        0.4306        0.003         0.556       1776
+    AUDNZD      2109        0.4306       -0.002         0.376       1774
+    USDJPY     13376        0.4168        0.020         0.577       1717
+
+================================================================================
+Report generation completed
+================================================================================
