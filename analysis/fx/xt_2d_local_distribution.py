@@ -196,7 +196,7 @@ class XTLocalDistributionVisualizer:
         ax1 = fig.add_subplot(gs[0, :2])
         ax1.scatter(global_t_julian, global_x, alpha=0.3, s=15, c='gray')
         ax1.set_xlabel('時間（ユリウス日）', fontsize=12)
-        ax1.set_ylabel('X値（価格）', fontsize=12)
+        ax1.set_ylabel('X値（変化率）', fontsize=12)
         ax1.set_title(f'【適用前】全体のX-T散布図 - 一見普通\n'
                      f'XとTの両方向にデータが分散している',
                      fontsize=14, fontweight='bold')
@@ -260,7 +260,7 @@ T統計:
         ax3.add_patch(ellipse)
 
         ax3.set_xlabel('時間（ユリウス日）', fontsize=12)
-        ax3.set_ylabel('X値（価格）', fontsize=12)
+        ax3.set_ylabel('X値（変化率）', fontsize=12)
         ax3.set_title(f'【適用後】ルール適用 - 2次元局所分布！\n'
                      f'XとTの両方向で集中（クラスタリング）',
                      fontsize=14, fontweight='bold', color='darkred')
@@ -315,7 +315,7 @@ T統計（Phase 2.3）:
         ax5.hist(local_x, bins=30, alpha=0.7, color='red', label='局所（ルール）', density=True)
         ax5.axvline(global_x.mean(), color='gray', linestyle='--', linewidth=2)
         ax5.axvline(x_mean, color='red', linestyle='--', linewidth=2)
-        ax5.set_xlabel('X値（価格）')
+        ax5.set_xlabel('X値（変化率）')
         ax5.set_ylabel('密度')
         ax5.set_title('X分布の比較\n全体 vs 局所')
         ax5.legend()
@@ -351,7 +351,7 @@ T統計（Phase 2.3）:
         ax7.axhline(x_mean, color='red', linestyle='--', linewidth=2)
         ax7.axvline(t_mean, color='blue', linestyle='--', linewidth=2)
         ax7.set_xlabel('T（ユリウス日）')
-        ax7.set_ylabel('X値（価格）')
+        ax7.set_ylabel('X値（変化率）')
         ax7.set_title('2次元密度\n（局所分布）')
         ax7.grid(True, alpha=0.3)
 
