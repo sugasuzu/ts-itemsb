@@ -28,9 +28,9 @@ import os
 
 warnings.filterwarnings('ignore')
 
-# 日本語フォント設定
+# 日本語フォント設定（ベストプラクティス版）
 def setup_japanese_font():
-    """日本語フォントを設定"""
+    """日本語フォントを設定（seaborn対応版）"""
     # Noto Sans JPフォントのダウンロードと設定
     font_path = '/tmp/NotoSansJP.ttf'
 
@@ -44,22 +44,36 @@ def setup_japanese_font():
             print(f"✓ フォントダウンロード完了: {font_path}")
         except Exception as e:
             print(f"警告: フォントダウンロード失敗 ({e})")
-            return
+            return False
 
     # フォントをmatplotlibに登録
     try:
         fm.fontManager.addfont(font_path)
-        plt.rcParams['font.family'] = 'Noto Sans JP'
-        plt.rcParams['font.sans-serif'] = ['Noto Sans JP', 'DejaVu Sans']
-        print("✓ 日本語フォント設定完了")
+
+        # フォントキャッシュをクリア（重要！）
+        fm._load_fontmanager(try_read_cache=False)
+
+        return True
     except Exception as e:
-        print(f"警告: フォント設定失敗 ({e})")
+        print(f"警告: フォント登録失敗 ({e})")
+        return False
 
 # フォント設定を実行
-setup_japanese_font()
+font_loaded = setup_japanese_font()
 
-# スタイル設定
+# スタイル設定（seabornを先に設定）
 sns.set_style("whitegrid")
+
+# seabornの設定後に日本語フォントを再設定（ベストプラクティス）
+if font_loaded:
+    # font.sans-serifのリストに日本語フォントを最優先で追加
+    plt.rcParams['font.sans-serif'] = ['Noto Sans JP'] + plt.rcParams['font.sans-serif']
+    plt.rcParams['font.family'] = 'sans-serif'
+
+    # マイナス記号の文字化け対策
+    plt.rcParams['axes.unicode_minus'] = False
+
+    print("✓ 日本語フォント設定完了（seaborn対応）")
 plt.rcParams['figure.figsize'] = (20, 14)
 
 
