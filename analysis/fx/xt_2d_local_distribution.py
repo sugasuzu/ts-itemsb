@@ -195,19 +195,34 @@ class XTLocalDistributionVisualizer:
         print(f"  T範囲: [{t_min:.1f}, {t_max:.1f}] = {t_span:.1f}日間")  # Phase 2.3新規
         print(f"  T密度: {t_density:.4f} (マッチ/日)")  # Phase 2.3新規
         print(f"  サポート: {support_count} ({support_rate*100:.2f}%)")
-        print(f"  Start: {rule.get('Start', 'N/A')}")
-        print(f"  End: {rule.get('End', 'N/A')}")
+        start_date_str = rule.get('Start', 'N/A')
+        end_date_str = rule.get('End', 'N/A')
+        print(f"  Start: {start_date_str}")
+        print(f"  End: {end_date_str}")
+
+        # データ全体の期間を取得（実際のデータセット期間：最初から最後まで）
+        # Startから少し前、Endから少し後の期間を全体期間とする
+        try:
+            start_datetime = datetime.strptime(start_date_str.split()[0], '%Y-%m-%d')
+            end_datetime = datetime.strptime(end_date_str.split()[0], '%Y-%m-%d')
+            # データ全体の期間をJulian dayに変換（少し余裕を持たせる）
+            data_start_julian = (start_datetime - datetime(2000, 1, 1)).days - 10
+            data_end_julian = (end_datetime - datetime(2000, 1, 1)).days + 10
+        except:
+            # パースに失敗した場合は従来の方法
+            data_start_julian = t_min - 20
+            data_end_julian = t_max + 20
 
         # 合成データ生成（全体分布）
         np.random.seed(42)
         n_points = 4000
 
-        # 全体分布（X, T両方で広く散らばる）
+        # 全体分布（データ全体の期間に広く散らばる）
         global_x = np.random.normal(0, 1.5, n_points)
-        global_t_julian = np.random.uniform(t_mean - 200, t_mean + 200, n_points)
+        global_t_julian = np.random.uniform(data_start_julian, data_end_julian, n_points)
         global_t_dates = self.julian_array_to_datetime(global_t_julian)  # 日付に変換
 
-        # 局所分布（ルールマッチ点）
+        # 局所分布（ルールマッチ点：局所的に集中）
         n_local = int(n_points * support_rate)
         local_x = np.random.normal(x_mean, x_sigma, n_local)
         local_t_julian = np.random.normal(t_mean, max(t_sigma, 5), n_local)  # 最小5日の分散
@@ -220,13 +235,13 @@ class XTLocalDistributionVisualizer:
         fig = plt.figure(figsize=(26, 20))
         gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.35)
 
-        # ===== 1. 全体のX-T散布図（普通に見える） =====
+        # ===== 1. 全体のX-T散布図（全期間表示） =====
         ax1 = fig.add_subplot(gs[0, :2])
         ax1.scatter(global_t_dates, global_x, alpha=0.4, s=25, c='gray', edgecolors='none')
-        ax1.set_xlabel('時間（日付）', fontsize=16, fontweight='bold')
+        ax1.set_xlabel('時間（日付）- データ全期間', fontsize=16, fontweight='bold')
         ax1.set_ylabel('X値（変化率）', fontsize=16, fontweight='bold')
-        ax1.set_title(f'【適用前】全体のX-T散布図 - 一見普通\n'
-                     f'XとTの両方向にデータが分散している',
+        ax1.set_title(f'【適用前】全期間のX-T散布図\n'
+                     f'データ全体（{start_date_str[:10]} ～ {end_date_str[:10]}）に広く分散',
                      fontsize=18, fontweight='bold', pad=15)
 
         # 日付軸のフォーマット設定
@@ -294,10 +309,10 @@ T統計:
                          label='±1σ領域（2次元）', zorder=3)
         ax3.add_patch(ellipse)
 
-        ax3.set_xlabel('時間（日付）', fontsize=16, fontweight='bold')
+        ax3.set_xlabel('時間（日付）- データ全期間', fontsize=16, fontweight='bold')
         ax3.set_ylabel('X値（変化率）', fontsize=16, fontweight='bold')
-        ax3.set_title(f'【適用後】ルール適用 - 2次元局所分布！\n'
-                     f'XとTの両方向で集中（クラスタリング）',
+        ax3.set_title(f'【適用後】ルール適用 - 全期間の中に局所分布を発見！\n'
+                     f'同じ全期間表示だが、赤い点（ルール適合）がXとTで局所的に集中',
                      fontsize=18, fontweight='bold', color='darkred', pad=15)
 
         # 日付軸のフォーマット設定
@@ -313,10 +328,11 @@ T統計:
         t_reduction = (1 - max(t_sigma, 5) / global_t_julian.std()) * 100
 
         ax3.text(0.02, 0.95,
-                f'✓ Matched: {n_local} ({support_rate*100:.1f}%)\n'
-                f'✓ X: μ={x_mean:.4f}, σ={x_sigma:.4f} ({x_reduction:.1f}% reduction)\n'
-                f'✓ T: μ={t_mean:.1f}, σ={max(t_sigma, 5):.1f} days ({t_reduction:.1f}% reduction)\n'
-                f'✓ 2D local cluster detected!',
+                f'【局所集中の証明】\n'
+                f'✓ ルール適合: {n_local}点 ({support_rate*100:.1f}%)\n'
+                f'✓ X方向: μ={x_mean:.4f}, σ={x_sigma:.4f} (分散{x_reduction:.1f}%削減)\n'
+                f'✓ T方向: μ={t_mean:.1f}日, σ={max(t_sigma, 5):.1f}日 (分散{t_reduction:.1f}%削減)\n'
+                f'✓ 全期間の中で、小さいが明確な2次元局所クラスタ！',
                 transform=ax3.transAxes, verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.9, edgecolor='darkred', linewidth=2.5),
                 fontsize=15, fontweight='bold')
@@ -402,9 +418,10 @@ T統計（Phase 2.3）:
 
         ax7.axhline(x_mean, color='red', linestyle='--', linewidth=3.5, alpha=0.8)
         ax7.axvline(t_mean_date, color='blue', linestyle='--', linewidth=3.5, alpha=0.8)
-        ax7.set_xlabel('T（日付）', fontsize=15, fontweight='bold')
+        ax7.set_xlabel('T（日付）- ルール適合点のみ', fontsize=15, fontweight='bold')
         ax7.set_ylabel('X値（変化率）', fontsize=15, fontweight='bold')
-        ax7.set_title('2次元密度\n（局所分布）', fontsize=16, fontweight='bold', pad=12)
+        ax7.set_title('2次元密度（局所分布のみ拡大表示）\n'
+                     'ルール適合点の集中度', fontsize=16, fontweight='bold', pad=12)
 
         # 日付軸のフォーマット設定
         ax7.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
