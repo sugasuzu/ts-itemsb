@@ -97,7 +97,8 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
 #define Minsup 0.02      // 最小サポート値（2%以上の頻度が必要）※為替用に緩和
-#define Maxsigx 10.0     // 最大標準偏差（分散が10.0以下のルールのみ採用）※為替用に緩和
+#define Maxsigx 10.0     // X方向の最大標準偏差（分散が10.0以下のルールのみ採用）※為替用に緩和
+#define Maxsigt 30.0     // T方向の最大標準偏差（時間的に30日以内に集中）Phase 2.3新規
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
@@ -224,9 +225,13 @@ struct temporal_rule
     double x_mean;  // 予測値の平均
     double x_sigma; // 予測値の標準偏差
 
-    // T（時間）の統計 - Phase 2.2新機能
+    // T（時間）の統計 - Phase 2.2/2.3拡張
     double t_mean_julian;  // Tの平均（Julian day）
     double t_sigma_julian; // Tの標準偏差（Julian day単位）
+    double t_min_julian;   // Tの最小値（Julian day）- Phase 2.3新規
+    double t_max_julian;   // Tの最大値（Julian day）- Phase 2.3新規
+    double t_span_days;    // 時間範囲（日数）- Phase 2.3新規
+    double t_density;      // 時間密度（マッチ数/日）- Phase 2.3新規
 
     // ルールの品質指標
     int support_count;     // サポートカウント（マッチした回数）
@@ -327,9 +332,11 @@ int ***time_delay_chain = NULL; // 時間遅延チェーン
 double ***x_sum = NULL;         // X値の合計（予測値）
 double ***x_sigma_array = NULL; // X値の二乗和（予測値の分散計算用）
 
-// T（時間）統計配列 - Phase 2.2新機能
+// T（時間）統計配列 - Phase 2.2/2.3拡張
 double ***t_sum_julian = NULL;        // Julian dayの合計
 double ***t_sigma_julian_array = NULL; // Julian dayの二乗和（分散計算用）
+double ***t_min_julian_array = NULL;  // Julian day最小値 - Phase 2.3新規
+double ***t_max_julian_array = NULL;  // Julian day最大値 - Phase 2.3新規
 
 /* 時間パターン追跡配列
    マッチした時点の詳細を記録 */
@@ -549,9 +556,11 @@ void allocate_dynamic_memory()
     x_sum = (double ***)malloc(Nkotai * sizeof(double **));
     x_sigma_array = (double ***)malloc(Nkotai * sizeof(double **));
 
-    // Phase 2.2で追加：T（時間）の統計配列
+    // Phase 2.2/2.3で追加：T（時間）の統計配列
     t_sum_julian = (double ***)malloc(Nkotai * sizeof(double **));
     t_sigma_julian_array = (double ***)malloc(Nkotai * sizeof(double **));
+    t_min_julian_array = (double ***)malloc(Nkotai * sizeof(double **));  // Phase 2.3新規
+    t_max_julian_array = (double ***)malloc(Nkotai * sizeof(double **));  // Phase 2.3新規
 
     /* 時間パターン追跡配列 */
     matched_time_indices = (int ****)malloc(Nkotai * sizeof(int ***));
@@ -569,6 +578,8 @@ void allocate_dynamic_memory()
         x_sigma_array[i] = (double **)malloc(Npn * sizeof(double *));
         t_sum_julian[i] = (double **)malloc(Npn * sizeof(double *));
         t_sigma_julian_array[i] = (double **)malloc(Npn * sizeof(double *));
+        t_min_julian_array[i] = (double **)malloc(Npn * sizeof(double *));  // Phase 2.3新規
+        t_max_julian_array[i] = (double **)malloc(Npn * sizeof(double *));  // Phase 2.3新規
         matched_time_indices[i] = (int ***)malloc(Npn * sizeof(int **));
         matched_time_count[i] = (int **)malloc(Npn * sizeof(int *));
 
@@ -583,6 +594,8 @@ void allocate_dynamic_memory()
             x_sigma_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
             t_sum_julian[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
             t_sigma_julian_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
+            t_min_julian_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));  // Phase 2.3新規
+            t_max_julian_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));  // Phase 2.3新規
             matched_time_count[i][j] = (int *)calloc(MAX_DEPTH, sizeof(int));
             matched_time_indices[i][j] = (int **)malloc(MAX_DEPTH * sizeof(int *));
 
@@ -710,6 +723,8 @@ void free_dynamic_memory()
                 free(x_sigma_array[i][j]);
                 free(t_sum_julian[i][j]);
                 free(t_sigma_julian_array[i][j]);
+                free(t_min_julian_array[i][j]);  // Phase 2.3
+                free(t_max_julian_array[i][j]);  // Phase 2.3
                 free(matched_time_count[i][j]);
 
                 for (k = 0; k < MAX_DEPTH; k++)
@@ -727,6 +742,8 @@ void free_dynamic_memory()
             free(x_sigma_array[i]);
             free(t_sum_julian[i]);
             free(t_sigma_julian_array[i]);
+            free(t_min_julian_array[i]);  // Phase 2.3
+            free(t_max_julian_array[i]);  // Phase 2.3
             free(matched_time_indices[i]);
             free(matched_time_count[i]);
         }
@@ -739,6 +756,8 @@ void free_dynamic_memory()
         free(x_sigma_array);
         free(t_sum_julian);
         free(t_sigma_julian_array);
+        free(t_min_julian_array);  // Phase 2.3
+        free(t_max_julian_array);  // Phase 2.3
         free(matched_time_indices);
         free(matched_time_count);
     }
