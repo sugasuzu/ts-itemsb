@@ -76,7 +76,18 @@ if font_loaded:
     plt.rcParams['axes.unicode_minus'] = False
 
     print("✓ 日本語フォント設定完了（seaborn対応）")
-plt.rcParams['figure.figsize'] = (20, 14)
+
+# グラフ設定を見やすく調整
+plt.rcParams['figure.figsize'] = (24, 18)  # より大きく
+plt.rcParams['font.size'] = 13  # ベースフォントサイズ増加
+plt.rcParams['axes.titlesize'] = 16  # タイトルサイズ
+plt.rcParams['axes.labelsize'] = 14  # 軸ラベルサイズ
+plt.rcParams['xtick.labelsize'] = 12  # X軸目盛りサイズ
+plt.rcParams['ytick.labelsize'] = 12  # Y軸目盛りサイズ
+plt.rcParams['legend.fontsize'] = 12  # 凡例サイズ
+plt.rcParams['lines.linewidth'] = 2.5  # ラインの太さ
+plt.rcParams['grid.linewidth'] = 1.0  # グリッドラインの太さ
+plt.rcParams['grid.alpha'] = 0.4  # グリッドの透明度
 
 
 class XTLocalDistributionVisualizer:
@@ -188,27 +199,27 @@ class XTLocalDistributionVisualizer:
         local_x = np.random.normal(x_mean, x_sigma, n_local)
         local_t_julian = np.random.normal(t_mean, max(t_sigma, 5), n_local)  # 最小5日の分散
 
-        # プロット作成
-        fig = plt.figure(figsize=(20, 16))
-        gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+        # プロット作成（見やすいレイアウト）
+        fig = plt.figure(figsize=(26, 20))
+        gs = fig.add_gridspec(3, 3, hspace=0.35, wspace=0.35)
 
         # ===== 1. 全体のX-T散布図（普通に見える） =====
         ax1 = fig.add_subplot(gs[0, :2])
-        ax1.scatter(global_t_julian, global_x, alpha=0.3, s=15, c='gray')
-        ax1.set_xlabel('時間（ユリウス日）', fontsize=12)
-        ax1.set_ylabel('X値（変化率）', fontsize=12)
+        ax1.scatter(global_t_julian, global_x, alpha=0.4, s=25, c='gray', edgecolors='none')
+        ax1.set_xlabel('時間（ユリウス日）', fontsize=16, fontweight='bold')
+        ax1.set_ylabel('X値（変化率）', fontsize=16, fontweight='bold')
         ax1.set_title(f'【適用前】全体のX-T散布図 - 一見普通\n'
                      f'XとTの両方向にデータが分散している',
-                     fontsize=14, fontweight='bold')
-        ax1.grid(True, alpha=0.3)
+                     fontsize=18, fontweight='bold', pad=15)
+        ax1.grid(True, alpha=0.4, linewidth=1.2)
 
-        # 統計情報
+        # 統計情報（見やすく大きく）
         ax1.text(0.02, 0.95, f'全データ点: {n_points}\n'
                             f'X: σ={global_x.std():.4f}\n'
                             f'T: σ={global_t_julian.std():.2f} 日',
                 transform=ax1.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7),
-                fontsize=11)
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.85, edgecolor='orange', linewidth=2),
+                fontsize=14, fontweight='bold')
 
         # ===== 2. 全体分布の統計 =====
         ax2 = fig.add_subplot(gs[0, 2])
@@ -229,43 +240,43 @@ T統計:
 データ点数: {n_points}
         """
         ax2.text(0.05, 0.95, global_stats_text, transform=ax2.transAxes,
-                fontsize=11, verticalalignment='top', family='monospace',
-                bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+                fontsize=13, verticalalignment='top', family='monospace', fontweight='bold',
+                bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.9, edgecolor='gray', linewidth=2))
 
         # ===== 3. ルール適用後のX-T散布図（面白い！） =====
         ax3 = fig.add_subplot(gs[1, :2])
 
         # 全体データ（薄く）
-        ax3.scatter(global_t_julian, global_x, alpha=0.1, s=10, c='lightgray',
-                   label='非マッチ')
+        ax3.scatter(global_t_julian, global_x, alpha=0.15, s=20, c='lightgray',
+                   label='非マッチ', edgecolors='none')
 
-        # ルールマッチデータ（強調）
-        ax3.scatter(local_t_julian, local_x, alpha=0.8, s=50, c='red',
-                   edgecolors='darkred', linewidth=1.5,
+        # ルールマッチデータ（強調・大きく）
+        ax3.scatter(local_t_julian, local_x, alpha=0.85, s=80, c='red',
+                   edgecolors='darkred', linewidth=2,
                    label=f'ルール適合 ({n_local}点)', zorder=5)
 
-        # 局所平均
-        ax3.axhline(x_mean, color='red', linestyle='--', linewidth=2,
-                   label=f'X平均 ({x_mean:.4f})', zorder=4)
-        ax3.axvline(t_mean, color='blue', linestyle='--', linewidth=2,
-                   label=f'T平均 ({t_mean:.1f})', zorder=4)
+        # 局所平均（太く目立つ）
+        ax3.axhline(x_mean, color='red', linestyle='--', linewidth=3.5,
+                   label=f'X平均 ({x_mean:.4f})', zorder=4, alpha=0.8)
+        ax3.axvline(t_mean, color='blue', linestyle='--', linewidth=3.5,
+                   label=f'T平均 ({t_mean:.1f})', zorder=4, alpha=0.8)
 
-        # 2次元楕円（±1σ領域）
+        # 2次元楕円（±1σ領域）より目立つ
         ellipse = Ellipse((t_mean, x_mean),
                          width=t_sigma * 2,
                          height=x_sigma * 2,
-                         fill=True, facecolor='red', alpha=0.15,
-                         edgecolor='darkred', linewidth=2, linestyle='--',
+                         fill=True, facecolor='red', alpha=0.2,
+                         edgecolor='darkred', linewidth=3, linestyle='--',
                          label='±1σ領域（2次元）', zorder=3)
         ax3.add_patch(ellipse)
 
-        ax3.set_xlabel('時間（ユリウス日）', fontsize=12)
-        ax3.set_ylabel('X値（変化率）', fontsize=12)
+        ax3.set_xlabel('時間（ユリウス日）', fontsize=16, fontweight='bold')
+        ax3.set_ylabel('X値（変化率）', fontsize=16, fontweight='bold')
         ax3.set_title(f'【適用後】ルール適用 - 2次元局所分布！\n'
                      f'XとTの両方向で集中（クラスタリング）',
-                     fontsize=14, fontweight='bold', color='darkred')
-        ax3.legend(fontsize=10)
-        ax3.grid(True, alpha=0.3)
+                     fontsize=18, fontweight='bold', color='darkred', pad=15)
+        ax3.legend(fontsize=13, loc='best', framealpha=0.95, edgecolor='black', fancybox=True)
+        ax3.grid(True, alpha=0.4, linewidth=1.2)
 
         # 効果を強調
         x_reduction = (1 - x_sigma / global_x.std()) * 100
@@ -277,8 +288,8 @@ T統計:
                 f'✓ T: μ={t_mean:.1f}, σ={max(t_sigma, 5):.1f} days ({t_reduction:.1f}% reduction)\n'
                 f'✓ 2D local cluster detected!',
                 transform=ax3.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8),
-                fontsize=12, fontweight='bold')
+                bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.9, edgecolor='darkred', linewidth=2.5),
+                fontsize=15, fontweight='bold')
 
         # ===== 4. 局所分布の統計 =====
         ax4 = fig.add_subplot(gs[1, 2])
@@ -306,63 +317,65 @@ T統計（Phase 2.3）:
   T: {t_reduction:.1f}%
         """
         ax4.text(0.05, 0.95, local_stats_text, transform=ax4.transAxes,
-                fontsize=11, verticalalignment='top', family='monospace',
-                bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
+                fontsize=13, verticalalignment='top', family='monospace', fontweight='bold',
+                bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.9, edgecolor='darkred', linewidth=2))
 
         # ===== 5. Xの分布比較 =====
         ax5 = fig.add_subplot(gs[2, 0])
-        ax5.hist(global_x, bins=50, alpha=0.4, color='gray', label='全体', density=True)
-        ax5.hist(local_x, bins=30, alpha=0.7, color='red', label='局所（ルール）', density=True)
-        ax5.axvline(global_x.mean(), color='gray', linestyle='--', linewidth=2)
-        ax5.axvline(x_mean, color='red', linestyle='--', linewidth=2)
-        ax5.set_xlabel('X値（変化率）')
-        ax5.set_ylabel('密度')
-        ax5.set_title('X分布の比較\n全体 vs 局所')
-        ax5.legend()
-        ax5.grid(True, alpha=0.3, axis='y')
+        ax5.hist(global_x, bins=50, alpha=0.5, color='gray', label='全体', density=True, edgecolor='black', linewidth=0.5)
+        ax5.hist(local_x, bins=30, alpha=0.8, color='red', label='局所（ルール）', density=True, edgecolor='darkred', linewidth=1.5)
+        ax5.axvline(global_x.mean(), color='gray', linestyle='--', linewidth=3, alpha=0.7)
+        ax5.axvline(x_mean, color='red', linestyle='--', linewidth=3.5, alpha=0.9)
+        ax5.set_xlabel('X値（変化率）', fontsize=15, fontweight='bold')
+        ax5.set_ylabel('密度', fontsize=15, fontweight='bold')
+        ax5.set_title('X分布の比較\n全体 vs 局所', fontsize=16, fontweight='bold', pad=12)
+        ax5.legend(fontsize=13, framealpha=0.95, edgecolor='black')
+        ax5.grid(True, alpha=0.4, axis='y', linewidth=1.2)
 
         # ===== 6. Tの分布比較 =====
         ax6 = fig.add_subplot(gs[2, 1])
-        ax6.hist(global_t_julian, bins=50, alpha=0.4, color='gray', label='全体', density=True)
-        ax6.hist(local_t_julian, bins=30, alpha=0.7, color='blue', label='局所（ルール）', density=True)
-        ax6.axvline(global_t_julian.mean(), color='gray', linestyle='--', linewidth=2)
-        ax6.axvline(t_mean, color='blue', linestyle='--', linewidth=2)
-        ax6.set_xlabel('T（ユリウス日）')
-        ax6.set_ylabel('密度')
-        ax6.set_title('T分布の比較\n全体 vs 局所')
-        ax6.legend()
-        ax6.grid(True, alpha=0.3, axis='y')
+        ax6.hist(global_t_julian, bins=50, alpha=0.5, color='gray', label='全体', density=True, edgecolor='black', linewidth=0.5)
+        ax6.hist(local_t_julian, bins=30, alpha=0.8, color='blue', label='局所（ルール）', density=True, edgecolor='darkblue', linewidth=1.5)
+        ax6.axvline(global_t_julian.mean(), color='gray', linestyle='--', linewidth=3, alpha=0.7)
+        ax6.axvline(t_mean, color='blue', linestyle='--', linewidth=3.5, alpha=0.9)
+        ax6.set_xlabel('T（ユリウス日）', fontsize=15, fontweight='bold')
+        ax6.set_ylabel('密度', fontsize=15, fontweight='bold')
+        ax6.set_title('T分布の比較\n全体 vs 局所', fontsize=16, fontweight='bold', pad=12)
+        ax6.legend(fontsize=13, framealpha=0.95, edgecolor='black')
+        ax6.grid(True, alpha=0.4, axis='y', linewidth=1.2)
 
         # ===== 7. 2次元密度プロット =====
         ax7 = fig.add_subplot(gs[2, 2])
 
-        # ヒートマップ（局所分布）
+        # ヒートマップ（局所分布）より鮮明に
         from scipy.stats import gaussian_kde
         if len(local_x) > 10:
             try:
                 xy = np.vstack([local_t_julian, local_x])
                 z = gaussian_kde(xy)(xy)
-                scatter = ax7.scatter(local_t_julian, local_x, c=z, s=50,
-                                    cmap='Reds', alpha=0.6, edgecolors='darkred')
-                plt.colorbar(scatter, ax=ax7, label='密度')
+                scatter = ax7.scatter(local_t_julian, local_x, c=z, s=70,
+                                    cmap='Reds', alpha=0.7, edgecolors='darkred', linewidth=1)
+                cbar = plt.colorbar(scatter, ax=ax7, label='密度')
+                cbar.ax.tick_params(labelsize=12)
+                cbar.set_label('密度', fontsize=14, fontweight='bold')
             except:
-                ax7.scatter(local_t_julian, local_x, c='red', s=50, alpha=0.6)
+                ax7.scatter(local_t_julian, local_x, c='red', s=70, alpha=0.7, edgecolors='darkred')
 
-        ax7.axhline(x_mean, color='red', linestyle='--', linewidth=2)
-        ax7.axvline(t_mean, color='blue', linestyle='--', linewidth=2)
-        ax7.set_xlabel('T（ユリウス日）')
-        ax7.set_ylabel('X値（変化率）')
-        ax7.set_title('2次元密度\n（局所分布）')
-        ax7.grid(True, alpha=0.3)
+        ax7.axhline(x_mean, color='red', linestyle='--', linewidth=3.5, alpha=0.8)
+        ax7.axvline(t_mean, color='blue', linestyle='--', linewidth=3.5, alpha=0.8)
+        ax7.set_xlabel('T（ユリウス日）', fontsize=15, fontweight='bold')
+        ax7.set_ylabel('X値（変化率）', fontsize=15, fontweight='bold')
+        ax7.set_title('2次元密度\n（局所分布）', fontsize=16, fontweight='bold', pad=12)
+        ax7.grid(True, alpha=0.4, linewidth=1.2)
 
-        # 全体タイトル（Phase 2.3）
+        # 全体タイトル（Phase 2.3）より目立つ
         fig.suptitle(f'{self.forex_pair} - X-T 2次元局所分布（ルール #{rule_idx}）\n'
                     f'Phase 2.3: XとTの両方向での局所的な集中を実証（Maxsigt={82.0}日制約）',
-                    fontsize=16, fontweight='bold', y=0.995)
+                    fontsize=20, fontweight='bold', y=0.995, color='darkblue')
 
-        # 保存
+        # 保存（高解像度）
         output_file = self.vis_dir / f'xt_2d_local_distribution_rule_{rule_idx:04d}.png'
-        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.savefig(output_file, dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"\n✓ 保存完了: {output_file}\n")
         plt.close()
 
