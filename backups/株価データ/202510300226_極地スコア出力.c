@@ -96,8 +96,8 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.1     // 最小サポート値（10%以上の頻度が必要)
-#define Maxsigx 5.0     // 最大分散（分散が5.0以下のルールのみ採用）
+#define Minsup 0.02      // 最小サポート値（2%以上の頻度が必要）※為替用に緩和
+#define Maxsigx 10.0     // 最大標準偏差（分散が10.0以下のルールのみ採用）※為替用に緩和
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
@@ -1748,7 +1748,7 @@ void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k
  */
 int check_rule_quality(double sigma_x, double support, int num_attributes)
 {
-    return (sigma_x <= Maxsigx &&              // 分散が閾値以下
+    return (sigma_x <= Maxsigx &&              // 標準偏差が閾値以下
             support >= Minsup &&               // サポート値が閾値以上
             num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
 }
@@ -2796,7 +2796,7 @@ void calculate_and_write_extreme_scores()
     }
 
     // CSVヘッダーを出力
-    fprintf(file, "rule_idx,signal_strength,SNR,extremeness,t_statistic,p_value,extreme_rate,extreme_signal_score,matched_count,tail_event_rate,directional_bias,non_zero_rate,positive_rate\n");
+    fprintf(file, "rule_idx,signal_strength,SNR,extremeness,t_statistic,p_value,tail_event_rate,extreme_signal_score,matched_count\n");
 
     // 各ルールについてシグナルスコアを計算
     for (i = 0; i < global_rule_count; i++)
@@ -2812,11 +2812,7 @@ void calculate_and_write_extreme_scores()
         // マッチしたX値の統計を計算
         double X_sum = 0.0;
         double X_sum_sq = 0.0;
-        int tail_count = 0;       // |X| > 2σの個数
-        int extreme_count = 0;    // |X| > 1.0の個数（実際の極値変化率）
-        int positive_count = 0;   // X > 0.5の個数（プラス方向）
-        int negative_count = 0;   // X < -0.5の個数（マイナス方向）
-        int near_zero_count = 0;  // |X| < 0.3の個数（ゼロ付近）
+        int tail_count = 0; // |X| > 2σの個数
 
         for (j = 0; j < matched_count; j++)
         {
@@ -2832,28 +2828,6 @@ void calculate_and_write_extreme_scores()
             if (fabs(X_val) > 2.0 * global_X_std)
             {
                 tail_count++;
-            }
-
-            // Extreme event: |X| > 1.0 (実際の極値変化率1%以上)
-            if (fabs(X_val) > 1.0)
-            {
-                extreme_count++;
-            }
-
-            // 方向性のカウント
-            if (X_val > 0.5)
-            {
-                positive_count++;
-            }
-            else if (X_val < -0.5)
-            {
-                negative_count++;
-            }
-
-            // ゼロ付近のカウント
-            if (fabs(X_val) < 0.3)
-            {
-                near_zero_count++;
             }
         }
 
@@ -2895,47 +2869,33 @@ void calculate_and_write_extreme_scores()
         // メトリクス5: Tail Event Rate
         double tail_event_rate = (double)tail_count / matched_count;
 
-        // メトリクス6: Extreme Rate (|X| > 1.0の発生率)
-        double extreme_rate = (double)extreme_count / matched_count;
-
-        // メトリクス7: Directional Bias（方向性の偏り）
-        double positive_rate = (double)positive_count / matched_count;
-        double negative_rate = (double)negative_count / matched_count;
-        double directional_bias = (positive_rate > negative_rate) ? positive_rate : negative_rate;
-
-        // メトリクス8: Non-zero Rate（ゼロ以外の割合）
-        double non_zero_rate = 1.0 - ((double)near_zero_count / matched_count);
-
-        // 総合スコア（0から離れた方向性のある分布を重視）
-        double extreme_signal_score = 0.4 * directional_bias +  // 方向性の偏りを最重視
-                                      0.3 * non_zero_rate +      // ゼロ以外の割合
-                                      0.2 * extreme_rate +       // 極値発生率
-                                      0.1 * signal_strength;     // シグナル強度
+        // 総合スコア（重み付け平均）
+        double extreme_signal_score = 0.3 * signal_strength +
+                                      0.3 * SNR +
+                                      0.2 * extremeness +
+                                      0.1 * (1.0 - p_value) +
+                                      0.1 * tail_event_rate;
 
         // 構造体に保存
         rule->signal_strength = signal_strength;
         rule->SNR = SNR;
-        rule->extremeness = directional_bias; // directional_biasを保存
+        rule->extremeness = extremeness;
         rule->t_statistic = t_statistic;
         rule->p_value = p_value;
-        rule->tail_event_rate = extreme_rate; // extreme_rateを保存
+        rule->tail_event_rate = tail_event_rate;
         rule->extreme_signal_score = extreme_signal_score;
 
-        // CSVに1行出力（新指標追加）
-        fprintf(file, "%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f\n",
+        // CSVに1行出力
+        fprintf(file, "%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d\n",
                 i,
                 signal_strength,
                 SNR,
-                extremeness,          // 元のextremeness
+                extremeness,
                 t_statistic,
                 p_value,
-                extreme_rate,         // 極値率
+                tail_event_rate,
                 extreme_signal_score,
-                matched_count,
-                tail_event_rate,      // 参考値
-                directional_bias,     // 方向性の偏り
-                non_zero_rate,        // ゼロ以外の割合
-                positive_rate);       // プラス方向の割合（方向判定用）
+                matched_count);
     }
 
     fclose(file);
