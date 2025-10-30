@@ -283,6 +283,9 @@ class RuleScatterPlotterXT:
                            alpha=0.8, s=80, c='red', edgecolors='darkred', linewidth=1,
                            label=f'Rule matched (n={len(matched_df)})', zorder=2)
 
+        # Y軸の範囲を固定
+        ax.set_ylim(-4, 4)
+
         # 平均値の水平線
         ax.axhline(y=mean_X, color='red', linewidth=2, linestyle='--',
                   label=f'Mean = {mean_X:.3f}', zorder=4)
