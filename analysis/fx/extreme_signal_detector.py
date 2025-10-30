@@ -72,13 +72,42 @@ class ExtremeSignalDetector:
         # CSVを読み込み
         self.data = pd.read_csv(data_path)
 
+        # 【極値データフィルタリング】方向性を持つ極値データのみを残す
+        # C言語側のフィルタリングと一致させる
+        original_count = len(self.data)
+
+        # 正と負の極値をカウント
+        positive_count = (self.data['X'] >= 1.0).sum()
+        negative_count = (self.data['X'] <= -1.0).sum()
+
+        # 多い方を自動選択
+        if positive_count > negative_count:
+            self.extreme_direction = 1  # POSITIVE
+            self.data = self.data[self.data['X'] >= 1.0].reset_index(drop=True)
+            direction_label = "POSITIVE (X >= 1.0)"
+        else:
+            self.extreme_direction = -1  # NEGATIVE
+            self.data = self.data[self.data['X'] <= -1.0].reset_index(drop=True)
+            direction_label = "NEGATIVE (X <= -1.0)"
+
+        filtered_count = len(self.data)
+
+        print(f"\n========== Filtering Directional Extreme Data ==========")
+        print(f"Original records: {original_count}")
+        print(f"Positive extreme count (X >= 1.0): {positive_count}")
+        print(f"Negative extreme count (X <= -1.0): {negative_count}")
+        print(f"Auto-selected direction: {direction_label}")
+        print(f"Filtered records: {filtered_count} ({100.0 * filtered_count / original_count:.2f}% of original)")
+        print(f"Removed records: {original_count - filtered_count}")
+
         # Tカラムをdatetimeに変換
         self.data['T'] = pd.to_datetime(self.data['T'])
 
         # 属性カラムのリストを取得
         self.attribute_columns = [col for col in self.data.columns if col not in ['X', 'T']]
 
-        print(f"Loaded data: {len(self.data)} records")
+        print(f"\nLoaded DIRECTIONAL EXTREME data: {len(self.data)} records")
+        print(f"Direction: {'UP (POSITIVE)' if self.extreme_direction == 1 else 'DOWN (NEGATIVE)'}")
         print(f"Date range: {self.data['T'].min()} to {self.data['T'].max()}")
         print(f"X range: {self.data['X'].min():.3f} to {self.data['X'].max():.3f}")
         print(f"X mean: {self.data['X'].mean():.3f}, std: {self.data['X'].std():.3f}")
@@ -107,9 +136,12 @@ class ExtremeSignalDetector:
             # rule_idxをインデックスとして使用
             scores_df = scores_df.set_index('rule_idx')
 
-            # スコアカラムをrulesにマージ
-            score_cols = ['signal_strength', 'SNR', 'extremeness', 't_statistic',
-                         'p_value', 'tail_event_rate', 'extreme_signal_score', 'matched_count']
+            # スコアカラムをrulesにマージ（方向性情報を追加）
+            score_cols = ['extreme_direction', 'signal_strength', 'SNR', 'extremeness', 't_statistic',
+                         'p_value', 'tail_event_rate', 'extreme_signal_score', 'matched_count',
+                         'directional_bias', 'non_zero_rate', 'positive_rate',
+                         'very_extreme_rate', 'mean_abs_ratio', 'spread_ratio',
+                         'p75_abs', 'p90_abs', 'p95_abs']
 
             for col in score_cols:
                 if col in scores_df.columns:
@@ -387,8 +419,8 @@ class ExtremeSignalDetector:
         print(f"\nTop {min(top_n, len(ranked))} Extreme Signal Rules:")
         print(f"{'='*60}")
 
-        display_cols = ['signal_strength', 'SNR', 'extremeness', 'p_value',
-                       'tail_event_rate', 'matched_count_verified', 'extreme_signal_score']
+        display_cols = ['extremeness', 'tail_event_rate', 'very_extreme_rate',
+                       'mean_abs_ratio', 'p75_abs', 'matched_count_verified', 'extreme_signal_score']
 
         print(ranked[display_cols].head(top_n).to_string(index=True))
 
@@ -577,13 +609,25 @@ class ExtremeSignalDetector:
 
 def main():
     """メイン実行関数"""
+    import sys
 
     print("="*60)
     print("Extreme Signal Detector")
     print("="*60)
 
     # 通貨ペアリスト
-    forex_pairs = ['GBPCAD']  # GBPCADのみ処理
+    if len(sys.argv) > 1 and sys.argv[1] == '--all':
+        # 全通貨ペア
+        forex_pairs = ['AUDCAD', 'AUDJPY', 'AUDNZD', 'AUDUSD', 'CADJPY',
+                      'CHFJPY', 'EURAUD', 'EURCHF', 'EURGBP', 'EURJPY',
+                      'EURUSD', 'GBPAUD', 'GBPCAD', 'GBPJPY', 'GBPUSD',
+                      'NZDJPY', 'NZDUSD', 'USDCAD', 'USDCHF', 'USDJPY']
+    elif len(sys.argv) > 1:
+        # コマンドライン引数で指定された通貨ペア
+        forex_pairs = [sys.argv[1]]
+    else:
+        # デフォルトはGBPCAD
+        forex_pairs = ['GBPCAD']
 
     for pair in forex_pairs:
         print(f"\n{'#'*60}")
@@ -604,24 +648,25 @@ def main():
             # 極値ルールをランキング（方向性の偏りを重視）
             print("\n[2/4] Ranking extreme signal rules...")
 
-            # Extremenessを読み込む（directional_bias）
-            print(f"\nDirectional Bias (方向性の偏り) statistics:")
-            print(f"  Max: {detector.rules['Extremeness'].max():.4f} ({detector.rules['Extremeness'].max()*100:.2f}%)")
-            print(f"  95th percentile: {detector.rules['Extremeness'].quantile(0.95):.4f} ({detector.rules['Extremeness'].quantile(0.95)*100:.2f}%)")
-            print(f"  Median: {detector.rules['Extremeness'].median():.4f} ({detector.rules['Extremeness'].median()*100:.2f}%)")
-            print(f"  Baseline: ~50% (ランダムなら0.5)")
+            # Extremenessを読み込む（新指標: p75_abs / global_std）
+            print(f"\nExtremeness (75th percentile / global_std) statistics:")
+            print(f"  Max: {detector.rules['extremeness'].max():.4f}")
+            print(f"  95th percentile: {detector.rules['extremeness'].quantile(0.95):.4f}")
+            print(f"  Median: {detector.rules['extremeness'].median():.4f}")
+            print(f"  This measures how far the 75th percentile is from zero")
 
             top_rules = detector.rank_extreme_rules(
                 min_signal_strength=0.0,   # 制限なし
                 min_snr=0.0,               # 制限なし
-                min_support=200,           # 最低200サンプル（信頼性重視）
+                min_support=10,            # 最低10サンプル（極値データのみなので閾値を下げる）
                 max_p_value=1.0,           # 制限なし
                 top_n=20
             )
 
-            # Extremeness（directional_bias）でソート（降順）
+            # extreme_signal_scoreでソート（降順）- 既にランキング済み
+            # extremenessは既に新指標（p75_abs / global_std）が使われている
             if len(top_rules) > 0:
-                top_rules = top_rules.sort_values('Extremeness', ascending=False)
+                top_rules = top_rules.sort_values('extreme_signal_score', ascending=False)
 
             if len(top_rules) == 0:
                 print(f"\n⚠️  No extreme signal rules found for {pair}. Skipping visualization.")

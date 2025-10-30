@@ -65,6 +65,9 @@
 char forex_pair[20] = "USDJPY";              // 為替ペアコード
 char data_file_path[512] = DATANAME;         // データファイルパス
 char output_base_dir[256] = "output";        // 出力ベースディレクトリ
+
+/* 極値方向フィルタリングモード */
+int extreme_direction = 0;                   // 0: 両方, 1: 正のみ(X>=1.0), -1: 負のみ(X<=-1.0)
 char pool_file_a[512] = POOL_FILE_A;         // 動的ルールプールA
 char pool_file_b[512] = POOL_FILE_B;         // 動的ルールプールB
 char cont_file[512] = CONT_FILE;             // 動的統計ファイル
@@ -822,6 +825,7 @@ int load_csv_with_header()
     int row = 0;
     int col = 0;
     int attr_count = 0;
+    int i, j; /* ループ変数（C89スタイル） */
 
     printf("Loading CSV file with header: %s\n", data_file_path);
 
@@ -958,9 +962,113 @@ int load_csv_with_header()
 
     fclose(file);
 
+    // 【極値データフィルタリング】方向性を持つ極値データのみを残す
+    int original_Nrd = Nrd;
+    int filtered_count = 0;
+    int positive_count = 0;  /* X >= 1.0 のカウント */
+    int negative_count = 0;  /* X <= -1.0 のカウント */
+
+    printf("\n========== Filtering Directional Extreme Data ==========\n");
+    printf("Original records: %d\n", original_Nrd);
+
+    if (extreme_direction == 1) {
+        printf("Filter mode: POSITIVE ONLY (X >= 1.0)\n");
+    } else if (extreme_direction == -1) {
+        printf("Filter mode: NEGATIVE ONLY (X <= -1.0)\n");
+    } else {
+        printf("Filter mode: BOTH (will auto-select dominant direction)\n");
+    }
+
+    // フィルタリング後のデータを一時的に格納する配列
+    double *filtered_x = (double *)malloc(Nrd * sizeof(double));
+    int **filtered_data = (int **)malloc(Nrd * sizeof(int *));
+    char **filtered_timestamps = (char **)malloc(Nrd * sizeof(char *));
+    struct time_info *filtered_time_info = (struct time_info *)malloc(Nrd * sizeof(struct time_info));
+
+    /* まず、正と負の極値をカウント */
+    for (i = 0; i < Nrd; i++)
+    {
+        if (x_buffer[i] >= 1.0) positive_count++;
+        if (x_buffer[i] <= -1.0) negative_count++;
+    }
+
+    /* extreme_direction == 0 の場合、多い方を自動選択 */
+    if (extreme_direction == 0) {
+        if (positive_count > negative_count) {
+            extreme_direction = 1;
+            printf("Auto-selected: POSITIVE (count=%d > %d)\n", positive_count, negative_count);
+        } else {
+            extreme_direction = -1;
+            printf("Auto-selected: NEGATIVE (count=%d >= %d)\n", negative_count, positive_count);
+        }
+    }
+
+    for (i = 0; i < Nrd; i++)
+    {
+        int keep_record = 0;
+
+        /* 方向性に応じてフィルタリング */
+        if (extreme_direction == 1 && x_buffer[i] >= 1.0) {
+            keep_record = 1;  /* 正の極値のみ */
+        } else if (extreme_direction == -1 && x_buffer[i] <= -1.0) {
+            keep_record = 1;  /* 負の極値のみ */
+        }
+
+        if (keep_record)
+        {
+            filtered_x[filtered_count] = x_buffer[i];
+
+            // 属性データをコピー
+            filtered_data[filtered_count] = (int *)malloc(Nzk * sizeof(int));
+            for (j = 0; j < Nzk; j++)
+            {
+                filtered_data[filtered_count][j] = data_buffer[i][j];
+            }
+
+            // タイムスタンプをコピー
+            filtered_timestamps[filtered_count] = (char *)malloc(MAX_LINE_LENGTH * sizeof(char));
+            strcpy(filtered_timestamps[filtered_count], timestamp_buffer[i]);
+
+            // 時間情報をコピー
+            filtered_time_info[filtered_count] = time_info_array[i];
+
+            filtered_count++;
+        }
+    }
+
+    printf("Positive extreme count (X >= 1.0): %d\n", positive_count);
+    printf("Negative extreme count (X <= -1.0): %d\n", negative_count);
+    printf("Filtered records (%s): %d (%.2f%% of original)\n",
+           extreme_direction == 1 ? "POSITIVE" : "NEGATIVE",
+           filtered_count, 100.0 * filtered_count / original_Nrd);
+    printf("Removed records: %d\n", original_Nrd - filtered_count);
+
+    // 元のデータを解放
+    for (i = 0; i < Nrd; i++)
+    {
+        free(data_buffer[i]);
+        free(timestamp_buffer[i]);
+    }
+    free(data_buffer);
+    free(x_buffer);
+    free(timestamp_buffer);
+    free(time_info_array);
+
+    // フィルタリング後のデータを元のバッファに再割り当て
+    Nrd = filtered_count;
+    x_buffer = filtered_x;
+    data_buffer = filtered_data;
+    timestamp_buffer = filtered_timestamps;
+    time_info_array = filtered_time_info;
+
+    printf("========================================================\n\n");
+
     // 読み込み結果のサマリを表示
-    printf("Data loaded successfully:\n");
-    printf("  Records: %d\n", Nrd);
+    printf("Data loaded successfully (DIRECTIONAL EXTREME VALUES):\n");
+    printf("  Records: %d (%s extreme)\n", Nrd,
+           extreme_direction == 1 ? "POSITIVE" : "NEGATIVE");
+    printf("  Direction: %s\n",
+           extreme_direction == 1 ? "UP (X >= 1.0)" : "DOWN (X <= -1.0)");
     printf("  Attributes: %d\n", Nzk);
     printf("  X range: %.2f to %.2f\n",
            x_buffer[0], x_buffer[Nrd - 1]);
@@ -2795,8 +2903,8 @@ void calculate_and_write_extreme_scores()
         return;
     }
 
-    // CSVヘッダーを出力
-    fprintf(file, "rule_idx,signal_strength,SNR,extremeness,t_statistic,p_value,extreme_rate,extreme_signal_score,matched_count,tail_event_rate,directional_bias,non_zero_rate,positive_rate\n");
+    // CSVヘッダーを出力（方向性情報追加）
+    fprintf(file, "rule_idx,extreme_direction,signal_strength,SNR,extremeness,t_statistic,p_value,extreme_rate,extreme_signal_score,matched_count,tail_event_rate,directional_bias,non_zero_rate,positive_rate,very_extreme_rate,mean_abs_ratio,spread_ratio,p75_abs,p90_abs,p95_abs\n");
 
     // 各ルールについてシグナルスコアを計算
     for (i = 0; i < global_rule_count; i++)
@@ -2809,14 +2917,20 @@ void calculate_and_write_extreme_scores()
         struct temporal_rule *rule = &global_rule_pool[i];
         int matched_count = rule->support_count;
 
+        // マッチしたX値を配列にコピー（ソート用）
+        double *X_values = (double *)malloc(matched_count * sizeof(double));
+
         // マッチしたX値の統計を計算
         double X_sum = 0.0;
         double X_sum_sq = 0.0;
         int tail_count = 0;       // |X| > 2σの個数
         int extreme_count = 0;    // |X| > 1.0の個数（実際の極値変化率）
+        int very_extreme_count = 0; // |X| > 2.0の個数（超極値）
         int positive_count = 0;   // X > 0.5の個数（プラス方向）
         int negative_count = 0;   // X < -0.5の個数（マイナス方向）
         int near_zero_count = 0;  // |X| < 0.3の個数（ゼロ付近）
+
+        double abs_X_sum = 0.0;   // |X|の合計（平均絶対値用）
 
         for (j = 0; j < matched_count; j++)
         {
@@ -2825,8 +2939,11 @@ void calculate_and_write_extreme_scores()
                 continue;
 
             double X_val = x_buffer[idx];
+            X_values[j] = X_val;  // 配列にコピー
+
             X_sum += X_val;
             X_sum_sq += X_val * X_val;
+            abs_X_sum += fabs(X_val);
 
             // Tail event: |X| > 2 * global_std
             if (fabs(X_val) > 2.0 * global_X_std)
@@ -2838,6 +2955,12 @@ void calculate_and_write_extreme_scores()
             if (fabs(X_val) > 1.0)
             {
                 extreme_count++;
+            }
+
+            // Very extreme event: |X| > 2.0
+            if (fabs(X_val) > 2.0)
+            {
+                very_extreme_count++;
             }
 
             // 方向性のカウント
@@ -2861,14 +2984,59 @@ void calculate_and_write_extreme_scores()
         double X_variance = (X_sum_sq / matched_count) - (X_mean_actual * X_mean_actual);
         double X_std_actual = (X_variance > 0) ? sqrt(X_variance) : 0.0;
 
-        // メトリクス1: Signal Strength = |X_mean|
+        // X値の絶対値配列を作成してソート（パーセンタイル計算用）
+        double *abs_X_values = (double *)malloc(matched_count * sizeof(double));
+        for (j = 0; j < matched_count; j++)
+        {
+            abs_X_values[j] = fabs(X_values[j]);
+        }
+
+        // バブルソート（簡易実装）
+        for (j = 0; j < matched_count - 1; j++)
+        {
+            for (int k = 0; k < matched_count - j - 1; k++)
+            {
+                if (abs_X_values[k] > abs_X_values[k + 1])
+                {
+                    double temp = abs_X_values[k];
+                    abs_X_values[k] = abs_X_values[k + 1];
+                    abs_X_values[k + 1] = temp;
+                }
+            }
+        }
+
+        // パーセンタイル計算
+        int p50_idx = matched_count / 2;
+        int p75_idx = (int)(matched_count * 0.75);
+        int p90_idx = (int)(matched_count * 0.90);
+        int p95_idx = (int)(matched_count * 0.95);
+
+        double median_abs = abs_X_values[p50_idx];
+        double p75_abs = abs_X_values[p75_idx];
+        double p90_abs = abs_X_values[p90_idx];
+        double p95_abs = abs_X_values[p95_idx];
+
+        // 平均絶対値
+        double mean_abs_X = abs_X_sum / matched_count;
+
+        // メトリクス1: Signal Strength = |X_mean| (従来)
         double signal_strength = fabs(X_mean_actual);
 
-        // メトリクス2: SNR = |X_mean| / X_std
+        // メトリクス2: SNR = |X_mean| / X_std (従来)
         double SNR = (X_std_actual > 1e-6) ? (signal_strength / X_std_actual) : 0.0;
 
-        // メトリクス3: Extremeness = |X_mean| / global_std
-        double extremeness = signal_strength / global_X_std;
+        // メトリクス3: Extremeness = 新指標（端への集中度）
+        // 75パーセンタイルの絶対値 / グローバル標準偏差
+        double extremeness = p75_abs / global_X_std;
+
+        // メトリクス3b: 分布の広がり = std / global_std
+        double spread_ratio = X_std_actual / global_X_std;
+
+        // メトリクス3c: 平均絶対値 / global_std
+        double mean_abs_ratio = mean_abs_X / global_X_std;
+
+        free(abs_X_values);
+        free(X_values);
 
         // メトリクス4: t検定
         double t_statistic = 0.0;
@@ -2898,6 +3066,9 @@ void calculate_and_write_extreme_scores()
         // メトリクス6: Extreme Rate (|X| > 1.0の発生率)
         double extreme_rate = (double)extreme_count / matched_count;
 
+        // メトリクス6b: Very Extreme Rate (|X| > 2.0の発生率)
+        double very_extreme_rate = (double)very_extreme_count / matched_count;
+
         // メトリクス7: Directional Bias（方向性の偏り）
         double positive_rate = (double)positive_count / matched_count;
         double negative_rate = (double)negative_count / matched_count;
@@ -2906,36 +3077,47 @@ void calculate_and_write_extreme_scores()
         // メトリクス8: Non-zero Rate（ゼロ以外の割合）
         double non_zero_rate = 1.0 - ((double)near_zero_count / matched_count);
 
-        // 総合スコア（0から離れた方向性のある分布を重視）
-        double extreme_signal_score = 0.4 * directional_bias +  // 方向性の偏りを最重視
-                                      0.3 * non_zero_rate +      // ゼロ以外の割合
-                                      0.2 * extreme_rate +       // 極値発生率
-                                      0.1 * signal_strength;     // シグナル強度
+        // 新しい総合スコア（端の分布を重視）
+        // 1. 75パーセンタイルの絶対値（端への集中）
+        // 2. 極値率（|X| > 1.0）
+        // 3. 超極値率（|X| > 2.0）
+        // 4. 平均絶対値（0からの距離）
+        double extreme_signal_score = 0.35 * extremeness +        // 75パーセンタイル（端への集中）
+                                      0.30 * extreme_rate +        // 極値発生率（|X| > 1.0）
+                                      0.20 * very_extreme_rate +   // 超極値発生率（|X| > 2.0）
+                                      0.15 * mean_abs_ratio;       // 平均絶対値
 
-        // 構造体に保存
+        // 構造体に保存（新指標を反映）
         rule->signal_strength = signal_strength;
         rule->SNR = SNR;
-        rule->extremeness = directional_bias; // directional_biasを保存
+        rule->extremeness = extremeness;  // 新extremeness（p75_abs / global_std）
         rule->t_statistic = t_statistic;
         rule->p_value = p_value;
         rule->tail_event_rate = extreme_rate; // extreme_rateを保存
         rule->extreme_signal_score = extreme_signal_score;
 
-        // CSVに1行出力（新指標追加）
-        fprintf(file, "%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f\n",
+        // CSVに1行出力（方向性情報を含む）
+        fprintf(file, "%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
                 i,
+                extreme_direction,  // 方向性: 1=POSITIVE, -1=NEGATIVE
                 signal_strength,
                 SNR,
-                extremeness,          // 元のextremeness
+                extremeness,          // 新extremeness (p75_abs / global_std)
                 t_statistic,
                 p_value,
-                extreme_rate,         // 極値率
-                extreme_signal_score,
+                extreme_rate,         // 極値率 (|X| > 1.0)
+                extreme_signal_score, // 新スコア
                 matched_count,
                 tail_event_rate,      // 参考値
                 directional_bias,     // 方向性の偏り
                 non_zero_rate,        // ゼロ以外の割合
-                positive_rate);       // プラス方向の割合（方向判定用）
+                positive_rate,        // プラス方向の割合
+                very_extreme_rate,    // 超極値率 (|X| > 2.0)
+                mean_abs_ratio,       // 平均絶対値 / global_std
+                spread_ratio,         // std / global_std
+                p75_abs,              // 75パーセンタイル絶対値
+                p90_abs,              // 90パーセンタイル絶対値
+                p95_abs);             // 95パーセンタイル絶対値
     }
 
     fclose(file);
