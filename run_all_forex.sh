@@ -83,8 +83,8 @@ for idx in "${!FOREX_PAIRS[@]}"; do
     # 処理開始時刻
     PAIR_START=$(date +%s)
 
-    # データファイルの存在確認
-    DATA_FILE="forex_data/gnminer_individual/${PAIR}.txt"
+    # データファイルの存在確認（極値データセット）
+    DATA_FILE="forex_data/extreme_gnminer/${PAIR}.txt"
     if [ ! -f "$DATA_FILE" ]; then
         printf "${RED}✗ エラー: データファイルが見つかりません: %s${NC}\n" "$DATA_FILE"
         echo "Result: FAILED (データファイル未発見)" >> "$BATCH_LOG"
