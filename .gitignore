@@ -53,6 +53,7 @@ desktop.ini
 
 analysis/fx/visualizations/
 analysis/fx/visualizations_xt/
+analysis/fx/visualizations_xt_actual/
 
 # シミュレーション結果ディレクトリ
 simulation/results/

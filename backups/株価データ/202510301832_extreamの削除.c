@@ -96,8 +96,8 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.001      // 最小サポート値（1%以上の頻度が必要)
-#define Maxsigx 1.0      // 最大分散（分散が5.0以下のルールのみ採用）
+#define Minsup 0.001     // 最小サポート値（1%以上の頻度が必要)
+#define Maxsigx 5.0      // 最大分散（分散が5.0以下のルールのみ採用）
 #define MinXmean 0.5     // 最小変化率平均
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
