@@ -55,6 +55,12 @@ analysis/fx/visualizations/
 analysis/fx/visualizations_xt/
 analysis/fx/visualizations_xt_actual/
 
+# 株価可視化ディレクトリ
+analysis/stock/visualizations_xt_actual/
+
+# 統計分析結果ディレクトリ
+analysis/stock/analysis_results/
+
 # シミュレーション結果ディレクトリ
 simulation/results/
 simulation/results_v2/

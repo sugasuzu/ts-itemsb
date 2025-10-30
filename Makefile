@@ -1,15 +1,14 @@
 # ================================================================================
-# GNMiner Phase 2 - Directional Extreme Rule Discovery Makefile
+# GNMiner Phase 2 - Stock Rule Discovery Makefile
 # ================================================================================
 #
-# This Makefile builds and runs directional extreme value analysis for forex
-# trading rule discovery. Each currency pair is analyzed separately for
-# positive extremes (BUY signals) and negative extremes (SELL signals).
+# This Makefile builds and runs rule discovery analysis for Nikkei 225 stocks.
+# Each stock is analyzed separately.
 #
 # Usage:
 #   make          # Build the executable
-#   make run      # Run all 20 pairs × 2 directions (40 analyses)
-#   make test     # Test with USDJPY positive and negative
+#   make run      # Run all 225 stocks
+#   make test     # Test with Toyota (7203)
 #   make clean    # Remove build artifacts
 #
 # ================================================================================
@@ -20,13 +19,32 @@ LDFLAGS = -lm
 TARGET = main
 SOURCE = main.c
 
-# All forex pairs (20 pairs)
-FOREX_PAIRS = USDJPY EURJPY GBPJPY AUDJPY NZDJPY CADJPY CHFJPY \
-              EURUSD GBPUSD AUDUSD NZDUSD USDCAD USDCHF \
-              EURGBP EURAUD EURCHF GBPAUD GBPCAD AUDCAD AUDNZD
-
-# Directions
-DIRECTIONS = positive negative
+# Nikkei 225 stock codes (225 stocks)
+STOCK_CODES = 1332 1333 1605 \
+              1721 1801 1802 1803 1925 1928 1963 \
+              2002 2269 2282 2501 2502 2503 2531 2801 2802 2871 2914 \
+              3086 3401 3402 3407 \
+              3861 3863 \
+              4005 4021 4042 4043 4061 4063 4151 4183 4188 4202 4204 4208 4272 4324 4452 4502 4503 4506 4507 4519 4523 4543 4568 4578 4612 4631 4661 4681 4704 4751 4901 4911 \
+              5001 5002 5019 5020 5101 5108 5201 5202 5214 5232 5233 5301 5332 5333 5401 5406 5411 5541 5631 5703 5706 5707 5711 5713 5714 5801 5802 5803 \
+              6103 6113 6178 6201 6268 6301 6302 6305 6326 6361 6367 6471 6472 6473 6479 6501 6502 6503 6504 6506 6586 6594 6645 6701 6702 6723 6724 6752 6753 6758 6762 6841 6857 6861 6902 6920 6923 6952 6954 6963 6971 6976 7003 7004 7011 7012 7013 \
+              7201 7202 7203 7205 7267 7269 7270 7272 \
+              7731 7733 7735 7741 7751 7752 \
+              7832 7911 7912 7951 \
+              9501 9502 9503 9531 9532 \
+              9001 9005 9007 9008 9020 9021 9022 \
+              9101 9104 9107 \
+              9201 9202 \
+              9301 9303 9613 \
+              4307 4324 4751 9432 9433 9437 9613 9697 9735 9766 9983 9984 \
+              8001 8002 8015 8031 8053 8058 8233 8252 8267 8306 8316 8331 8411 \
+              3086 3099 3382 7453 7606 7608 7611 8233 8252 8267 9983 \
+              8301 8303 8304 8306 8308 8309 8316 8331 8354 8355 8411 8473 \
+              8473 8601 8604 8628 8630 8697 8750 8766 8802 \
+              8725 8750 8766 8795 \
+              8802 \
+              8801 8802 8830 \
+              2413 4307 4324 4661 4751 6178 9432 9433 9437 9613 9697 9735 9766
 
 # ================================================================================
 # Build Targets
@@ -48,29 +66,27 @@ $(TARGET): $(SOURCE)
 # Execution Targets
 # ================================================================================
 
-# Run all pairs and directions (20 pairs × 2 directions = 40 analyses)
+# Run all stocks (225 stocks)
 run: $(TARGET)
 	@echo "=========================================="
 	@echo "  Running Full Batch Analysis"
-	@echo "  Total: 20 pairs × 2 directions = 40 runs"
+	@echo "  Total: 225 stocks"
 	@echo "=========================================="
 	@echo ""
 	@total=0; success=0; failed=0; \
-	for pair in $(FOREX_PAIRS); do \
-		for direction in $(DIRECTIONS); do \
-			total=$$((total + 1)); \
-			echo "----------------------------------------"; \
-			echo "[$$total/40] Processing: $$pair ($$direction)"; \
-			echo "----------------------------------------"; \
-			if ./$(TARGET) $$pair $$direction; then \
-				success=$$((success + 1)); \
-				echo "✓ SUCCESS: $$pair $$direction"; \
-			else \
-				failed=$$((failed + 1)); \
-				echo "✗ FAILED: $$pair $$direction"; \
-			fi; \
-			echo ""; \
-		done; \
+	for code in $(STOCK_CODES); do \
+		total=$$((total + 1)); \
+		echo "----------------------------------------"; \
+		echo "[$$total/225] Processing: $$code"; \
+		echo "----------------------------------------"; \
+		if ./$(TARGET) $$code; then \
+			success=$$((success + 1)); \
+			echo "✓ SUCCESS: $$code"; \
+		else \
+			failed=$$((failed + 1)); \
+			echo "✗ FAILED: $$code"; \
+		fi; \
+		echo ""; \
 	done; \
 	echo "=========================================="; \
 	echo "  Batch Processing Complete"; \
@@ -78,33 +94,31 @@ run: $(TARGET)
 	echo "Total runs:    $$total"; \
 	echo "Success:       $$success"; \
 	echo "Failed:        $$failed"; \
-	echo "Success rate:  $$((success * 100 / total))%"; \
+	if [ $$total -gt 0 ]; then \
+		echo "Success rate:  $$((success * 100 / total))%"; \
+	fi; \
 	echo "=========================================="; \
 	echo ""
 
-# Test with single pair (both directions)
+# Test with single stock (Toyota - 7203)
 test: $(TARGET)
 	@echo "=========================================="
-	@echo "  Test Run: USDJPY (both directions)"
+	@echo "  Test Run: Toyota (7203)"
 	@echo "=========================================="
 	@echo ""
-	@echo "--- Testing USDJPY positive ---"
-	./$(TARGET) USDJPY positive
-	@echo ""
-	@echo "--- Testing USDJPY negative ---"
-	./$(TARGET) USDJPY negative
+	./$(TARGET) 7203
 	@echo ""
 	@echo "✓ Test complete"
 
-# Run specific pair and direction
-# Usage: make run-pair PAIR=USDJPY DIR=positive
-run-pair: $(TARGET)
-	@if [ -z "$(PAIR)" ] || [ -z "$(DIR)" ]; then \
-		echo "ERROR: PAIR and DIR must be specified"; \
-		echo "Usage: make run-pair PAIR=USDJPY DIR=positive"; \
+# Run specific stock
+# Usage: make run-stock CODE=7203
+run-stock: $(TARGET)
+	@if [ -z "$(CODE)" ]; then \
+		echo "ERROR: CODE must be specified"; \
+		echo "Usage: make run-stock CODE=7203"; \
 		exit 1; \
 	fi
-	./$(TARGET) $(PAIR) $(DIR)
+	./$(TARGET) $(CODE)
 
 # ================================================================================
 # Utility Targets
@@ -131,16 +145,17 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make          - Build the executable"
-	@echo "  make run      - Run all 20 pairs × 2 directions (40 analyses)"
-	@echo "  make test     - Test with USDJPY (both directions)"
-	@echo "  make run-pair - Run specific pair/direction"
+	@echo "  make run      - Run all 225 Nikkei stocks"
+	@echo "  make test     - Test with Toyota (7203)"
+	@echo "  make run-stock - Run specific stock"
 	@echo "  make clean    - Remove build artifacts"
 	@echo "  make clean-all - Remove all output files"
 	@echo "  make help     - Show this help message"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run-pair PAIR=EURJPY DIR=positive"
-	@echo "  make run-pair PAIR=GBPUSD DIR=negative"
+	@echo "  make run-stock CODE=7203  # Toyota"
+	@echo "  make run-stock CODE=9984  # SoftBank"
+	@echo "  make run-stock CODE=6758  # Sony"
 	@echo ""
 
-.PHONY: all run test run-pair clean clean-all help
+.PHONY: all run test run-stock clean clean-all help
