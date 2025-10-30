@@ -53,3 +53,9 @@ desktop.ini
 
 analysis/fx/visualizations/
 analysis/fx/visualizations_xt/
+
+# シミュレーション結果ディレクトリ
+simulation/results/
+simulation/results_v2/
+simulation/results_walkforward/
+results_portfolio/
