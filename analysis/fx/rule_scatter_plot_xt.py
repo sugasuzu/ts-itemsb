@@ -245,7 +245,7 @@ class RuleScatterPlotterXT:
 
     def create_xt_scatter_plot(self, full_df, extreme_df, matched_df, rule, output_path):
         """
-        X-T散布図を作成（全体+極値+ルール適用）
+        X-T散布図を作成（全体+ルール適用）
 
         Parameters
         ----------
@@ -273,20 +273,15 @@ class RuleScatterPlotterXT:
         # 図の作成
         fig, ax = plt.subplots(figsize=(16, 10))
 
-        # 1. 全体データ（最も薄い灰色、小さい点）
+        # 1. 全体データ（中間の灰色、中サイズ）
         ax.scatter(full_df['T_datetime'], full_df['X'],
-                  alpha=0.15, s=10, c='lightgray',
+                  alpha=0.3, s=30, c='gray',
                   label=f'All data (n={len(full_df)})', zorder=1)
 
-        # 2. 極値データ（中間の灰色、中サイズ）
-        ax.scatter(extreme_df['T_datetime'], extreme_df['X'],
-                  alpha=0.3, s=30, c='gray',
-                  label=f'Extreme data (n={len(extreme_df)}, |X|≥1.0)', zorder=2)
-
-        # 3. ルール適用データ（赤色、大きい点）
-        scatter = ax.scatter(matched_df['T_datetime'], matched_df['X'],
+        # 2. ルール適用データ（赤色、大きい点）
+        ax.scatter(matched_df['T_datetime'], matched_df['X'],
                            alpha=0.8, s=80, c='red', edgecolors='darkred', linewidth=1,
-                           label=f'Rule matched (n={len(matched_df)})', zorder=3)
+                           label=f'Rule matched (n={len(matched_df)})', zorder=2)
 
         # 平均値の水平線
         ax.axhline(y=mean_X, color='red', linewidth=2, linestyle='--',
@@ -324,7 +319,6 @@ class RuleScatterPlotterXT:
             f"Localization Effect:\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"All data:     {len(full_df):5d} records\n"
-            f"Extreme:      {len(extreme_df):5d} records ({100*len(extreme_df)/len(full_df):.1f}%)\n"
             f"Rule matched: {len(matched_df):5d} records ({100*len(matched_df)/len(full_df):.1f}%)\n"
             f"\n"
             f"Matched Statistics:\n"
