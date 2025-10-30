@@ -56,10 +56,10 @@
 /* ファイル名
    入力データと出力ファイルのパスを定義 */
 #define DATANAME "forex_data/extreme_gnminer/USDJPY.txt" // 入力データファイル（デフォルト通貨ペアUSDJPY、極値データ）
-#define POOL_FILE_A "output/pool/zrp01a.txt"                // ルールプール出力A（詳細版）
-#define POOL_FILE_B "output/pool/zrp01b.txt"                // ルールプール出力B（要約版）
-#define CONT_FILE "output/doc/zrd01.txt"                    // 統計情報ファイル
-#define RESULT_FILE "output/doc/zrmemo01.txt"               // メモファイル（未使用）
+#define POOL_FILE_A "output/pool/zrp01a.txt"             // ルールプール出力A（詳細版）
+#define POOL_FILE_B "output/pool/zrp01b.txt"             // ルールプール出力B（要約版）
+#define CONT_FILE "output/doc/zrd01.txt"                 // 統計情報ファイル
+#define RESULT_FILE "output/doc/zrmemo01.txt"            // メモファイル（未使用）
 
 /* 動的ファイルパス（コマンドライン引数で変更可能） */
 char forex_pair[20] = "USDJPY";              // 為替ペアコード
@@ -98,8 +98,8 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.1     // 最小サポート値（10%以上の頻度が必要)
-#define Maxsigx 1.0     // 最大分散（分散が5.0以下のルールのみ採用）
+#define Minsup 0.1       // 最小サポート値（10%以上の頻度が必要)
+#define Maxsigx 1.0      // 最大分散（分散が5.0以下のルールのみ採用）
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
@@ -962,14 +962,16 @@ int load_csv_with_header()
     // 【極値データセット使用】
     // ※ データファイル（forex_data/extreme_gnminer/）は既に極値フィルタリング済み
     // ※ |X| >= 1.0 の両方向の極値のみが含まれている
-    int positive_count = 0;  /* X >= 1.0 のカウント */
-    int negative_count = 0;  /* X <= -1.0 のカウント */
+    int positive_count = 0; /* X >= 1.0 のカウント */
+    int negative_count = 0; /* X <= -1.0 のカウント */
 
     // 正と負の極値をカウント（統計目的のみ）
     for (i = 0; i < Nrd; i++)
     {
-        if (x_buffer[i] >= 1.0) positive_count++;
-        if (x_buffer[i] <= -1.0) negative_count++;
+        if (x_buffer[i] >= 1.0)
+            positive_count++;
+        if (x_buffer[i] <= -1.0)
+            negative_count++;
     }
 
     printf("\n========== Extreme Dataset Statistics ==========\n");
@@ -1015,7 +1017,8 @@ void create_output_directories()
              output_dir_pool, output_dir_doc);
     ret = system(cmd);
 
-    if (ret != 0) {
+    if (ret != 0)
+    {
         printf("ERROR: Failed to create output directories\n");
         printf("Command: %s\n", cmd);
         exit(1);
@@ -2867,14 +2870,14 @@ void calculate_and_write_extreme_scores()
         // マッチしたX値の統計を計算
         double X_sum = 0.0;
         double X_sum_sq = 0.0;
-        int tail_count = 0;       // |X| > 2σの個数
-        int extreme_count = 0;    // |X| > 1.0の個数（実際の極値変化率）
+        int tail_count = 0;         // |X| > 2σの個数
+        int extreme_count = 0;      // |X| > 1.0の個数（実際の極値変化率）
         int very_extreme_count = 0; // |X| > 2.0の個数（超極値）
-        int positive_count = 0;   // X > 0.5の個数（プラス方向）
-        int negative_count = 0;   // X < -0.5の個数（マイナス方向）
-        int near_zero_count = 0;  // |X| < 0.3の個数（ゼロ付近）
+        int positive_count = 0;     // X > 0.5の個数（プラス方向）
+        int negative_count = 0;     // X < -0.5の個数（マイナス方向）
+        int near_zero_count = 0;    // |X| < 0.3の個数（ゼロ付近）
 
-        double abs_X_sum = 0.0;   // |X|の合計（平均絶対値用）
+        double abs_X_sum = 0.0; // |X|の合計（平均絶対値用）
 
         for (j = 0; j < matched_count; j++)
         {
@@ -2883,7 +2886,7 @@ void calculate_and_write_extreme_scores()
                 continue;
 
             double X_val = x_buffer[idx];
-            X_values[j] = X_val;  // 配列にコピー
+            X_values[j] = X_val; // 配列にコピー
 
             X_sum += X_val;
             X_sum_sq += X_val * X_val;
@@ -3020,13 +3023,13 @@ void calculate_and_write_extreme_scores()
         // 2. 極値率（|X| > 1.0）
         // 3. 超極値率（|X| > 2.0）
         // 4. 平均絶対値（0からの距離）
-        double extreme_signal_score = 0.35 * extremeness +        // 75パーセンタイル（端への集中）
-                                      0.30 * extreme_rate +        // 極値発生率（|X| > 1.0）
-                                      0.20 * very_extreme_rate +   // 超極値発生率（|X| > 2.0）
-                                      0.15 * mean_abs_ratio;       // 平均絶対値
+        double extreme_signal_score = 0.35 * extremeness +       // 75パーセンタイル（端への集中）
+                                      0.30 * extreme_rate +      // 極値発生率（|X| > 1.0）
+                                      0.20 * very_extreme_rate + // 超極値発生率（|X| > 2.0）
+                                      0.15 * mean_abs_ratio;     // 平均絶対値
 
         // 構造体に保存（新指標を反映）
-        rule->extremeness = extremeness;  // 新extremeness（p75_abs / global_std）
+        rule->extremeness = extremeness; // 新extremeness（p75_abs / global_std）
         rule->t_statistic = t_statistic;
         rule->p_value = p_value;
         rule->tail_event_rate = extreme_rate; // extreme_rateを保存
@@ -3035,23 +3038,23 @@ void calculate_and_write_extreme_scores()
         // CSVに1行出力（方向性情報を含む）
         fprintf(file, "%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
                 i,
-                0,  // dataset_type: 0=BOTH (データセットに両極値含む)
-                extremeness,          // 新extremeness (p75_abs / global_std)
+                0,           // dataset_type: 0=BOTH (データセットに両極値含む)
+                extremeness, // 新extremeness (p75_abs / global_std)
                 t_statistic,
                 p_value,
                 extreme_rate,         // 極値率 (|X| > 1.0)
                 extreme_signal_score, // 新スコア
                 matched_count,
-                tail_event_rate,      // 参考値
-                directional_bias,     // 方向性の偏り
-                non_zero_rate,        // ゼロ以外の割合
-                positive_rate,        // プラス方向の割合
-                very_extreme_rate,    // 超極値率 (|X| > 2.0)
-                mean_abs_ratio,       // 平均絶対値 / global_std
-                spread_ratio,         // std / global_std
-                p75_abs,              // 75パーセンタイル絶対値
-                p90_abs,              // 90パーセンタイル絶対値
-                p95_abs);             // 95パーセンタイル絶対値
+                tail_event_rate,   // 参考値
+                directional_bias,  // 方向性の偏り
+                non_zero_rate,     // ゼロ以外の割合
+                positive_rate,     // プラス方向の割合
+                very_extreme_rate, // 超極値率 (|X| > 2.0)
+                mean_abs_ratio,    // 平均絶対値 / global_std
+                spread_ratio,      // std / global_std
+                p75_abs,           // 75パーセンタイル絶対値
+                p90_abs,           // 90パーセンタイル絶対値
+                p95_abs);          // 95パーセンタイル絶対値
     }
 
     fclose(file);
@@ -3332,11 +3335,16 @@ void setup_paths_for_forex(const char *code, const char *direction)
     direction_str[sizeof(direction_str) - 1] = '\0';
 
     // 方向コードを設定
-    if (strcmp(direction, "positive") == 0) {
-        extreme_direction = 1;   // 正の極値 (BUY signal)
-    } else if (strcmp(direction, "negative") == 0) {
-        extreme_direction = -1;  // 負の極値 (SELL signal)
-    } else {
+    if (strcmp(direction, "positive") == 0)
+    {
+        extreme_direction = 1; // 正の極値 (BUY signal)
+    }
+    else if (strcmp(direction, "negative") == 0)
+    {
+        extreme_direction = -1; // 負の極値 (SELL signal)
+    }
+    else
+    {
         printf("ERROR: Invalid direction '%s'. Must be 'positive' or 'negative'\n", direction);
         exit(1);
     }

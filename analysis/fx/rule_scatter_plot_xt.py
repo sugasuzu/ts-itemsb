@@ -304,10 +304,7 @@ class RuleScatterPlotterXT:
         ax.set_ylabel('X (Change Rate %)', fontsize=14, fontweight='bold')
 
         title_text = (
-            f"Rule {rule['rule_idx']}: {rule['rule_text']}\n"
-            f"Support: {rule['support_count']} ({rule['support_rate']:.2%}) | "
-            f"X_mean={rule['x_mean']:.3f} X_sigma={rule['x_sigma']:.3f} | "
-            f"SNR={rule['SNR']:.2f}"
+            f"Rule {rule['rule_idx']}: {rule['rule_text']}"
         )
         ax.set_title(title_text, fontsize=12, fontweight='bold', pad=20)
 
