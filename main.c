@@ -55,11 +55,11 @@
 
 /* ファイル名
    入力データと出力ファイルのパスを定義 */
-#define DATANAME "forex_data/gnminer_individual/USDJPY.txt" // 入力データファイル（デフォルト通貨ペアUSDJPY）
-#define POOL_FILE_A "output/pool/zrp01a.txt"                // ルールプール出力A（詳細版）
-#define POOL_FILE_B "output/pool/zrp01b.txt"                // ルールプール出力B（要約版）
-#define CONT_FILE "output/doc/zrd01.txt"                    // 統計情報ファイル
-#define RESULT_FILE "output/doc/zrmemo01.txt"               // メモファイル（未使用）
+#define DATANAME "forex_data/gnminer_individual_std/USDJPY.txt" // 入力データファイル（デフォルト通貨ペアUSDJPY）
+#define POOL_FILE_A "output/pool/zrp01a.txt"                    // ルールプール出力A（詳細版）
+#define POOL_FILE_B "output/pool/zrp01b.txt"                    // ルールプール出力B（要約版）
+#define CONT_FILE "output/doc/zrd01.txt"                        // 統計情報ファイル
+#define RESULT_FILE "output/doc/zrmemo01.txt"                   // メモファイル（未使用）
 
 /* 動的ファイルパス（コマンドライン引数で変更可能） */
 char forex_pair[20] = "USDJPY";              // 為替ペアコード
@@ -96,9 +96,9 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.001      // 最小サポート値（1%以上の頻度が必要)
+#define Minsup 0.01      // 最小サポート値（1%以上の頻度が必要)
 #define Maxsigx 1.0      // 最大分散（分散が5.0以下のルールのみ採用）
-#define MinXmean 0.5     // 最小変化率平均
+#define MinXmean 0.1     // 最小変化率平均
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
@@ -1747,10 +1747,10 @@ void analyze_temporal_patterns(struct temporal_rule *rule, int individual, int k
  */
 int check_rule_quality(double x_mean, double sigma_x, double support, int num_attributes)
 {
-    return (fabs(x_mean) >= MinXmean &&        // X平均の絶対値が1.0以上（極値）
-            sigma_x <= Maxsigx &&              // 分散が閾値以下
-            support >= Minsup &&               // サポート値が閾値以上
-            num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
+    return (
+        sigma_x <= Maxsigx &&              // 分散が閾値以下
+        support >= Minsup &&               // サポート値が閾値以上
+        num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
 }
 
 /**
@@ -2887,9 +2887,9 @@ void write_document_stats(struct trial_state *state)
                 state->rule_count - 1,              // ルール数
                 state->high_support_rule_count - 1, // 高サポートルール数
                 state->low_variance_rule_count - 1, // 低分散ルール数
-                total_rule_count,                   // 累積ルール数
-                total_high_support,                 // 累積高サポート数
-                total_low_variance,                 // 累積低分散数
+                global_rule_count,                  // 累積ルール数（グローバルプール）
+                global_high_support_count,          // 累積高サポート数（グローバルプール）
+                global_low_variance_count,          // 累積低分散数（グローバルプール）
                 rules_by_min_attributes,            // 最小属性数を満たすルール数
                 state->elapsed_time);               // 経過時間（秒）
         fclose(file);
@@ -3023,13 +3023,13 @@ void setup_paths_for_forex(const char *code)
     strncpy(forex_pair, code, sizeof(forex_pair) - 1);
     forex_pair[sizeof(forex_pair) - 1] = '\0';
 
-    // データファイルパスを設定
+    // データファイルパスを設定（標準化版を使用）
     snprintf(data_file_path, sizeof(data_file_path),
-             "forex_data/gnminer_individual/%s.txt", forex_pair);
+             "forex_data/gnminer_individual_std/%s.txt", forex_pair);
 
-    // 出力ベースディレクトリを設定
+    // 出力ベースディレクトリを設定（標準化版なのでstdサブディレクトリに出力）
     snprintf(output_base_dir, sizeof(output_base_dir),
-             "output/%s", forex_pair);
+             "output/std/%s", forex_pair);
 
     // 各サブディレクトリのパスを設定
     snprintf(output_dir_il, sizeof(output_dir_il),
@@ -3329,8 +3329,8 @@ int main(int argc, char *argv[])
         printf("  %s EURUSD  # Discover rules for EUR/USD\n", argv[0]);
         printf("  %s GBPJPY  # Discover rules for GBP/JPY\n\n", argv[0]);
         printf("Note:\n");
-        printf("  - Data files must exist: forex_data/gnminer_individual/{PAIR}.txt\n");
-        printf("  - Results will be saved to: output/{PAIR}/\n");
+        printf("  - Data files must exist: forex_data/gnminer_individual_std/{PAIR}.txt\n");
+        printf("  - Results will be saved to: output/std/{PAIR}/\n");
         printf("  - Use Makefile for batch processing: make run\n\n");
         printf("==============================================\n");
         return 0;
