@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-ルールベースX-T散布図作成スクリプト（株価データ版）
+X-T散布図作成スクリプト with T_interval_std（株価データ版）
 
-全体データと各ルールの局所分布を重ねて可視化し、
-ルール適用による局所化効果を示します。
+既存のX-T散布図に時間的規則性（T_interval_std）の情報を追加して可視化します。
 
 使用方法:
-    python analysis/stock/xt_scatter_actual_data_visualization.py
+    python analysis/stock/regime_classification_scatter.py
 """
 
 import pandas as pd
@@ -23,8 +22,8 @@ plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Hiragino Sans', 'DejaVu 
 plt.rcParams['axes.unicode_minus'] = False
 
 
-class ActualDataScatterPlotterXT:
-    """全体データに対するルールベースX-T散布図作成クラス（株価版）"""
+class ActualDataScatterPlotterWithInterval:
+    """X-T散布図 + 時間間隔情報の可視化クラス（株価版）"""
 
     def __init__(self, stock_code):
         """
@@ -34,7 +33,7 @@ class ActualDataScatterPlotterXT:
             銘柄コード (例: 7203)
         """
         self.stock_code = stock_code
-        self.base_dir = Path("analysis/stock/visualizations_xt_actual")
+        self.base_dir = Path("analysis/stock/visualizations_regime")
         self.output_dir = self.base_dir / stock_code
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -43,7 +42,7 @@ class ActualDataScatterPlotterXT:
         self.full_data_file = Path(f"nikkei225_data/gnminer_individual/{stock_code}.txt")
 
         print(f"\n{'='*80}")
-        print(f"Rule-Based X-T Scatter Plot Generator (Stock Data)")
+        print(f"Rule-Based X-T Scatter Plot with T_interval_std (Stock Data)")
         print(f"{'='*80}")
         print(f"Stock Code:    {stock_code}")
         print(f"Rule file:     {self.rule_file}")
@@ -60,7 +59,7 @@ class ActualDataScatterPlotterXT:
         max_rules : int, optional
             読み込む最大ルール数
         sort_by : str, optional
-            ソート基準 ('composite', 'support', 't_statistic', 'discovery')
+            ソート基準 ('composite', 'support', 'discovery')
 
         Returns
         -------
@@ -75,44 +74,24 @@ class ActualDataScatterPlotterXT:
         df = pd.read_csv(self.rule_file, sep='\t')
 
         # 複合スコアを計算（全ルールに対して）
-        # 正規化ベーススコア: log(1+support) / (X_sigma_norm + T_interval_norm + epsilon)
-        # サポートが大きく、X_sigmaとT_interval_stdが両方小さいルールを優先
+        # スコア = support_rate / (X_sigma × T_interval_sigma)
+        # support_rate大きい、X_sigmaとT_interval_sigma小さい → 高スコア
+        # 「頻繁に起こり（割合）、かつ安定的なルール」を優先
 
-        # X_sigmaを0-1スケールに正規化
-        X_sigma_min = df['X_sigma'].min()
-        X_sigma_max = df['X_sigma'].max()
-        if X_sigma_max > X_sigma_min:
-            df['X_sigma_norm'] = (df['X_sigma'] - X_sigma_min) / (X_sigma_max - X_sigma_min)
-        else:
-            df['X_sigma_norm'] = 0.0
-
-        # T_interval_stdを0-1スケールに正規化
-        # xt_scatter_actual_data_visualization.pyではT_interval_stdがないので、
-        # 列が存在する場合のみ正規化、存在しない場合は0とする
-        if 'T_interval_std' in df.columns:
-            T_interval_min = df['T_interval_std'].min()
-            T_interval_max = df['T_interval_std'].max()
-            if T_interval_max > T_interval_min:
-                df['T_interval_norm'] = (df['T_interval_std'] - T_interval_min) / (T_interval_max - T_interval_min)
-            else:
-                df['T_interval_norm'] = 0.0
-        else:
-            df['T_interval_norm'] = 0.0
+        # T_interval_stdをT_interval_sigmaとして扱う（名称統一）
+        df['T_interval_sigma'] = df['T_interval_std']
 
         # 複合スコア計算（epsilon=0.01で0除算を防止）
         epsilon = 0.01
-        df['composite_score'] = np.log1p(df['support_count']) / (df['X_sigma_norm'] + df['T_interval_norm'] + epsilon)
+        df['composite_score'] = df['support_rate'] / (df['X_sigma'] * df['T_interval_sigma'] + epsilon)
 
         # ソート処理
         if sort_by == 'composite':
             df = df.sort_values('composite_score', ascending=False)
-            print(f"✓ Sorted by composite_score (log(1+support) / (X_sigma_norm + T_interval_norm), descending)")
+            print(f"✓ Sorted by composite_score (support_rate / (X_sigma × T_interval_sigma), descending)")
         elif sort_by == 'support':
             df = df.sort_values('support_count', ascending=False)
             print(f"✓ Sorted by support_count (descending)")
-        elif sort_by == 't_statistic':
-            df = df.sort_values('abs_t', ascending=False)
-            print(f"✓ Sorted by |t_statistic| (descending)")
         elif sort_by == 'discovery':
             print(f"✓ Using discovery order (file order)")
 
@@ -152,8 +131,10 @@ class ActualDataScatterPlotterXT:
                 'x_sigma': row['X_sigma'],
                 'support_count': int(row['support_count']),
                 'support_rate': row['support_rate'],
-                't_statistic': row.get('t_statistic', 0.0),
-                'composite_score': row['composite_score']  # 複合スコアを追加
+                'composite_score': row['composite_score'],
+                't_interval_mean': row.get('T_interval_mean', 0.0),
+                't_interval_sigma': row.get('T_interval_std', 0.0),  # T_interval_sigmaとして扱う
+                'time_span_days': row.get('TimeSpan', 0)
             }
 
             rules.append(rule)
@@ -233,7 +214,6 @@ class ActualDataScatterPlotterXT:
             return pd.DataFrame(columns=['X', 'T', 'T_datetime'])
 
         # マッチしたレコードを返す
-        # ilocを使って位置ベースでアクセス（インデックスラベルに依存しない）
         matched_df = data_df.iloc[matched_indices][['X', 'T', 'T_datetime']].copy()
         matched_df = matched_df.reset_index(drop=True)
 
@@ -241,7 +221,7 @@ class ActualDataScatterPlotterXT:
 
     def create_xt_scatter_plot(self, full_df, matched_df, rule, output_path):
         """
-        X-T散布図を作成（全体+ルール適用）
+        X-T散布図を作成（全体+ルール適用+時間情報）
 
         Parameters
         ----------
@@ -274,8 +254,8 @@ class ActualDataScatterPlotterXT:
 
         # 2. ルール適用データ（赤色、大きい点）
         ax.scatter(matched_df['T_datetime'], matched_df['X'],
-                           alpha=0.8, s=80, c='red', edgecolors='darkred', linewidth=1,
-                           label=f'Rule matched (n={len(matched_df)})', zorder=2)
+                  alpha=0.8, s=80, c='red', edgecolors='darkred', linewidth=1,
+                  label=f'Rule matched (n={len(matched_df)})', zorder=2)
 
         # Y軸の範囲を固定
         ax.set_ylim(-10, 10)
@@ -309,10 +289,19 @@ class ActualDataScatterPlotterXT:
         ax.grid(True, alpha=0.3, linestyle='--')
 
         # 統計情報ボックス
-        t_stat = rule['t_statistic']
         composite_score = rule['composite_score']
-        is_significant = abs(t_stat) >= 2.0
-        sig_marker = " **SIGNIFICANT**" if is_significant else ""
+        x_sigma = rule['x_sigma']
+        support_count = rule['support_count']
+        support_rate = rule['support_rate']
+
+        # 時間情報
+        t_interval_mean = rule['t_interval_mean']
+        t_interval_sigma = rule['t_interval_sigma']
+        time_span_days = rule['time_span_days']
+        time_span_years = time_span_days / 365.25 if time_span_days > 0 else 0
+
+        # 積の計算（スコアの分母部分）
+        sigma_product = x_sigma * t_interval_sigma
 
         stats_text = (
             f"Localization Effect:\n"
@@ -322,17 +311,24 @@ class ActualDataScatterPlotterXT:
             f"\n"
             f"Matched Statistics:\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Mean:   {mean_X:7.3f}\n"
-            f"Std:    {std_X:7.3f}\n"
-            f"Min:    {min_X:7.3f}\n"
-            f"Max:    {max_X:7.3f}\n"
-            f"Range:  {max_X - min_X:7.3f}\n"
+            f"X_mean:  {mean_X:7.3f}\n"
+            f"X_sigma: {std_X:7.3f}\n"
+            f"Min:     {min_X:7.3f}\n"
+            f"Max:     {max_X:7.3f}\n"
+            f"Range:   {max_X - min_X:7.3f}\n"
             f"\n"
             f"Rule Quality Metrics:\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Composite:   {composite_score:6.2f}\n"
-            f"t-statistic: {t_stat:6.3f}{sig_marker}\n"
-            f"(|t|>=2.0 = 95% significant)"
+            f"Composite Score: {composite_score:8.4f}\n"
+            f"= support_rate / (X_σ × T_σ)\n"
+            f"= {support_rate:.4f} / {sigma_product:.2f}\n"
+            f"Support: {support_count} ({support_rate*100:.2f}%)\n"
+            f"\n"
+            f"Time Regularity:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"TimeSpan:         {time_span_days:4d} days ({time_span_years:.1f} yrs)\n"
+            f"T_interval_mean:  {t_interval_mean:6.1f} days\n"
+            f"T_interval_sigma: {t_interval_sigma:6.1f} days"
         )
 
         ax.text(0.98, 0.98, stats_text, transform=ax.transAxes,
@@ -359,7 +355,7 @@ class ActualDataScatterPlotterXT:
             可視化に必要な最小サンプル数（1に設定して全てのマッチを可視化）
         sort_by : str
             ソート基準（デフォルト: composite = 複合スコア降順）
-            'composite', 'support', 't_statistic', 'discovery'から選択
+            'composite', 'support', 'discovery'から選択
         """
         # ルール解析（上位max_rules個を取得）
         rules = self.parse_rule_file(max_rules=max_rules, sort_by=sort_by)
@@ -435,7 +431,7 @@ def main():
         print(f"{'#'*70}\n")
 
         try:
-            plotter = ActualDataScatterPlotterXT(stock_code)
+            plotter = ActualDataScatterPlotterWithInterval(stock_code)
 
             # 上位10ルールを処理（複合スコア降順でソート）
             plotter.process_all_rules(max_rules=10, min_samples=1, sort_by='composite')

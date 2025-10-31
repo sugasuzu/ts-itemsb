@@ -160,11 +160,11 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
-#define Nrulemax 2002         // 最大ルール数（メモリ制限）
-#define Minsup 0.01            // 最小サポート値（1%以上の頻度が必要)
-#define Maxsigx 5.0           // 最大X標準偏差（2.0%以下のルールのみ採用）
+#define Nrulemax 2002        // 最大ルール数（メモリ制限）
+#define Minsup 0.01          // 最小サポート値（1%以上の頻度が必要)
+#define Maxsigx 5.0          // 最大X標準偏差（2.0%以下のルールのみ採用）
 #define Maxsigt_interval 5.0 // 最大T間隔標準偏差（5日以下の規則的ルールのみ採用）
-#define MIN_ATTRIBUTES 2      // ルールの最小属性数（2個以上の属性が必要）
+#define MIN_ATTRIBUTES 2     // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
