@@ -39,6 +39,7 @@ class ActualDataScatterPlotterWithInterval:
 
         # ファイルパス
         self.rule_file = Path(f"output/{stock_code}/pool/zrp01a.txt")
+        self.matched_data_file = Path(f"output/{stock_code}/pool/rule_matched_data.txt")
         self.full_data_file = Path(f"nikkei225_data/gnminer_individual/{stock_code}.txt")
 
         print(f"\n{'='*80}")
@@ -167,55 +168,76 @@ class ActualDataScatterPlotterWithInterval:
 
         return df
 
-    def match_rule_to_data(self, data_df, rule):
+    def load_matched_data_from_file(self, rule_idx):
         """
-        ルール条件に合致するレコードのX値とT値を抽出
+        rule_matched_data.txtから特定ルールのマッチデータを読み込む
 
         Parameters
         ----------
-        data_df : pd.DataFrame
-            元データ
-        rule : dict
-            ルール情報
+        rule_idx : int
+            ルール番号（0-indexed）
 
         Returns
         -------
         pd.DataFrame
             マッチしたレコード (X, T, T_datetime列を含む)
         """
-        max_delay = max([c['delay'] for c in rule['conditions']])
-        start_idx = max_delay
-        end_idx = len(data_df) - 1
-
-        matched_indices = []
-
-        for t in range(start_idx, end_idx):
-            all_match = True
-
-            for condition in rule['conditions']:
-                attr_name = condition['attr']
-                delay = condition['delay']
-                check_idx = t - delay
-
-                if attr_name not in data_df.columns:
-                    all_match = False
-                    break
-
-                # ilocを使って位置ベースでアクセス
-                if data_df.iloc[check_idx][attr_name] != 1:
-                    all_match = False
-                    break
-
-            if all_match:
-                # t+1のレコードを取得
-                matched_indices.append(t + 1)
-
-        if len(matched_indices) == 0:
+        if not self.matched_data_file.exists():
+            print(f"Warning: Matched data file not found: {self.matched_data_file}")
             return pd.DataFrame(columns=['X', 'T', 'T_datetime'])
 
-        # マッチしたレコードを返す
-        matched_df = data_df.iloc[matched_indices][['X', 'T', 'T_datetime']].copy()
-        matched_df = matched_df.reset_index(drop=True)
+        # ファイルを読み込んで該当ルールのデータを抽出
+        with open(self.matched_data_file, 'r') as f:
+            lines = f.readlines()
+
+        # ルール番号で検索
+        target_rule_marker = f"Rule {rule_idx + 1}:"  # 1-indexed in file
+
+        start_idx = None
+        for i, line in enumerate(lines):
+            if line.strip() == target_rule_marker:
+                start_idx = i
+                break
+
+        if start_idx is None:
+            print(f"Warning: Rule {rule_idx + 1} not found in matched data file")
+            return pd.DataFrame(columns=['X', 'T', 'T_datetime'])
+
+        # データ部分を探す（"Matched Data Points" の後の区切り線の次から）
+        data_start = None
+        for i in range(start_idx, min(start_idx + 50, len(lines))):
+            if '-------+-----------------+----------' in lines[i]:
+                data_start = i + 1
+                break
+
+        if data_start is None:
+            return pd.DataFrame(columns=['X', 'T', 'T_datetime'])
+
+        # データを読み込む（次の "====" まで）
+        matched_data = []
+        for i in range(data_start, len(lines)):
+            line = lines[i].strip()
+
+            # 区切り線または空行で終了
+            if line.startswith('====') or line == '':
+                break
+
+            # データ行をパース: "     1 |      2000-01-10 |    0.500"
+            parts = line.split('|')
+            if len(parts) == 3:
+                try:
+                    t_str = parts[1].strip()
+                    x_val = float(parts[2].strip())
+                    matched_data.append({'T': t_str, 'X': x_val})
+                except ValueError:
+                    continue
+
+        if not matched_data:
+            return pd.DataFrame(columns=['X', 'T', 'T_datetime'])
+
+        # DataFrameに変換
+        matched_df = pd.DataFrame(matched_data)
+        matched_df['T_datetime'] = pd.to_datetime(matched_df['T'])
 
         return matched_df
 
@@ -365,7 +387,7 @@ class ActualDataScatterPlotterWithInterval:
 
         print(f"\nProcessing top {len(rules)} rules (sorted by {sort_by})...")
         print(f"Minimum samples required: {min_samples}")
-        print(f"All matched records will be visualized (no sampling)")
+        print(f"Using matched data from: {self.matched_data_file}")
         print(f"{'='*80}\n")
 
         successful_count = 0
@@ -373,8 +395,8 @@ class ActualDataScatterPlotterWithInterval:
 
         # 各ルールを処理
         for rule in rules:
-            # マッチング（全データに対して、全レコードをチェック）
-            matched_df = self.match_rule_to_data(full_df, rule)
+            # マッチデータをファイルから直接読み込み
+            matched_df = self.load_matched_data_from_file(rule['rule_idx'])
 
             # 最小サンプル数チェック
             if len(matched_df) < min_samples:
