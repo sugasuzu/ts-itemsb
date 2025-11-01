@@ -50,6 +50,7 @@ desktop.ini
 /output
 /nikkei225_data
 /forex_data
+/crypto_data
 
 analysis/fx/visualizations/
 analysis/fx/visualizations_xt/

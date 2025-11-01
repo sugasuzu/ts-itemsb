@@ -260,18 +260,22 @@ class GNMinerDataConverter:
             if base_name in self.returns_df.columns:
                 # 翌日の変化率を予測対象とする（1期先にシフト）
                 individual_df['X'] = self.returns_df[base_name].shift(-1)
+                # 翌々日の変化率をX+1として追加（2期先にシフト）
+                individual_df['X+1'] = self.returns_df[base_name].shift(-2)
             else:
                 # データがない場合は0で埋める
                 individual_df['X'] = 0.0
+                individual_df['X+1'] = 0.0
 
             # NaNを除去（最後の行）
             individual_df = individual_df.dropna()
 
             # GNMiner形式に合わせてカラムを並び替え
-            # 期待される形式: [属性1, 属性2, ..., X, T]
+            # 期待される形式: [属性1, 属性2, ..., X, X+1, T]
             # Tを最後に移動
-            cols = [col for col in individual_df.columns if col not in ['T', 'X']]
+            cols = [col for col in individual_df.columns if col not in ['T', 'X', 'X+1']]
             cols.append('X')
+            cols.append('X+1')
             cols.append('T')
             individual_df = individual_df[cols]
 
