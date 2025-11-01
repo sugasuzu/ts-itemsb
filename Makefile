@@ -1,15 +1,15 @@
 # ================================================================================
-# GNMiner Phase 2 - Stock Rule Discovery Makefile
+# GNMiner Phase 2 - Rule Discovery Makefile
 # ================================================================================
 #
-# This Makefile builds and runs rule discovery analysis for Nikkei 225 stocks.
-# Each stock is analyzed separately.
+# This Makefile builds and runs rule discovery analysis for stocks and crypto.
 #
 # Usage:
-#   make          # Build the executable
-#   make run      # Run all 225 stocks
-#   make test     # Test with Toyota (7203)
-#   make clean    # Remove build artifacts
+#   make            # Build the executable
+#   make run        # Run all 225 Nikkei stocks
+#   make run-crypto # Run all 20 crypto pairs
+#   make test       # Test with BTC-USD
+#   make clean      # Remove build artifacts
 #
 # ================================================================================
 
@@ -45,6 +45,12 @@ STOCK_CODES = 1332 1333 1605 \
               8802 \
               8801 8802 8830 \
               2413 4307 4324 4661 4751 6178 9432 9433 9437 9613 9697 9735 9766
+
+# Cryptocurrency pairs (20 pairs)
+CRYPTO_PAIRS = BTC-USD ETH-USD BNB-USD XRP-USD ADA-USD \
+               SOL-USD DOGE-USD DOT-USD MATIC-USD AVAX-USD \
+               LINK-USD UNI-USD ATOM-USD LTC-USD ETC-USD \
+               XLM-USD ALGO-USD VET-USD FIL-USD AAVE-USD
 
 # ================================================================================
 # Build Targets
@@ -100,15 +106,49 @@ run: $(TARGET)
 	echo "=========================================="; \
 	echo ""
 
-# Test with single stock (Toyota - 7203)
+# Test with cryptocurrency (BTC-USD)
 test: $(TARGET)
 	@echo "=========================================="
-	@echo "  Test Run: Toyota (7203)"
+	@echo "  Test Run: Bitcoin (BTC-USD)"
 	@echo "=========================================="
 	@echo ""
-	./$(TARGET) 7203
+	./$(TARGET) BTC-USD
 	@echo ""
 	@echo "✓ Test complete"
+
+# Run all cryptocurrency pairs (20 pairs)
+run-crypto: $(TARGET)
+	@echo "=========================================="
+	@echo "  Running Crypto Batch Analysis"
+	@echo "  Total: 20 pairs"
+	@echo "=========================================="
+	@echo ""
+	@total=0; success=0; failed=0; \
+	for pair in $(CRYPTO_PAIRS); do \
+		total=$$((total + 1)); \
+		echo "----------------------------------------"; \
+		echo "[$$total/20] Processing: $$pair"; \
+		echo "----------------------------------------"; \
+		if ./$(TARGET) $$pair; then \
+			success=$$((success + 1)); \
+			echo "✓ SUCCESS: $$pair"; \
+		else \
+			failed=$$((failed + 1)); \
+			echo "✗ FAILED: $$pair"; \
+		fi; \
+		echo ""; \
+	done; \
+	echo "=========================================="; \
+	echo "  Crypto Batch Processing Complete"; \
+	echo "=========================================="; \
+	echo "Total runs:    $$total"; \
+	echo "Success:       $$success"; \
+	echo "Failed:        $$failed"; \
+	if [ $$total -gt 0 ]; then \
+		echo "Success rate:  $$((success * 100 / total))%"; \
+	fi; \
+	echo "=========================================="; \
+	echo ""
 
 # Run specific stock
 # Usage: make run-stock CODE=7203
@@ -144,18 +184,20 @@ help:
 	@echo "=========================================="
 	@echo ""
 	@echo "Targets:"
-	@echo "  make          - Build the executable"
-	@echo "  make run      - Run all 225 Nikkei stocks"
-	@echo "  make test     - Test with Toyota (7203)"
-	@echo "  make run-stock - Run specific stock"
-	@echo "  make clean    - Remove build artifacts"
-	@echo "  make clean-all - Remove all output files"
-	@echo "  make help     - Show this help message"
+	@echo "  make            - Build the executable"
+	@echo "  make run        - Run all 225 Nikkei stocks"
+	@echo "  make run-crypto - Run all 20 crypto pairs"
+	@echo "  make test       - Test with BTC-USD"
+	@echo "  make run-stock  - Run specific stock"
+	@echo "  make clean      - Remove build artifacts"
+	@echo "  make clean-all  - Remove all output files"
+	@echo "  make help       - Show this help message"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run-stock CODE=7203  # Toyota"
-	@echo "  make run-stock CODE=9984  # SoftBank"
-	@echo "  make run-stock CODE=6758  # Sony"
+	@echo "  make test                      # BTC-USD"
+	@echo "  make run-stock CODE=BTC-USD    # Bitcoin"
+	@echo "  make run-stock CODE=ETH-USD    # Ethereum"
+	@echo "  make run-stock CODE=7203       # Toyota (stock)"
 	@echo ""
 
-.PHONY: all run test run-stock clean clean-all help
+.PHONY: all run run-crypto test run-stock clean clean-all help
