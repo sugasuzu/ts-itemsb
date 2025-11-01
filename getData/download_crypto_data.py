@@ -91,6 +91,9 @@ def download_crypto_data(start_date='2020-01-01', end_date=None):
     # DataFrameに統合
     combined_df = pd.DataFrame(data_dict)
 
+    # カラム名から -USD サフィックスを削除
+    combined_df.columns = [col.replace('-USD', '') for col in combined_df.columns]
+
     # 欠損値を前方埋め（一部取引所の休止日対応）
     combined_df = combined_df.fillna(method='ffill')
 

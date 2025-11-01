@@ -256,12 +256,12 @@ class GNMinerDataConverter:
             # データを抽出（Tカラムも含める）
             individual_df = classified_df[related_cols + ['T']].copy()
 
-            # このペアの変化率をXとして追加
+            # このペアの変化率をXとして追加（小数第2位に丸める）
             if base_name in self.returns_df.columns:
-                # 翌日の変化率を予測対象とする（1期先にシフト）
-                individual_df['X'] = self.returns_df[base_name].shift(-1)
-                # 翌々日の変化率をX+1として追加（2期先にシフト）
-                individual_df['X+1'] = self.returns_df[base_name].shift(-2)
+                # その時点の変化率をXとする（シフトなし）
+                individual_df['X'] = self.returns_df[base_name].round(2)
+                # 翌日の変化率をX+1として追加（1期先にシフト）
+                individual_df['X+1'] = self.returns_df[base_name].shift(-1).round(2)
             else:
                 # データがない場合は0で埋める
                 individual_df['X'] = 0.0
@@ -269,6 +269,10 @@ class GNMinerDataConverter:
 
             # NaNを除去（最後の行）
             individual_df = individual_df.dropna()
+
+            # 最初の行をスキップ（pct_change()で全て0になるため）
+            if len(individual_df) > 0:
+                individual_df = individual_df.iloc[1:].reset_index(drop=True)
 
             # GNMiner形式に合わせてカラムを並び替え
             # 期待される形式: [属性1, 属性2, ..., X, X+1, T]
