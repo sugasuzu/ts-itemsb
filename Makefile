@@ -2,13 +2,13 @@
 # GNMiner Phase 2 - Rule Discovery Makefile
 # ================================================================================
 #
-# This Makefile builds and runs rule discovery analysis for stocks and crypto.
+# This Makefile builds and runs rule discovery analysis for cryptocurrencies.
 #
 # Usage:
 #   make            # Build the executable
-#   make run        # Run all 225 Nikkei stocks
-#   make run-crypto # Run all 20 crypto pairs
-#   make test       # Test with BTC-USD
+#   make run        # Run all 20 cryptocurrencies (DEFAULT)
+#   make run-stocks # Run all 225 Nikkei stocks
+#   make test       # Test with BTC
 #   make clean      # Remove build artifacts
 #
 # ================================================================================
@@ -46,11 +46,11 @@ STOCK_CODES = 1332 1333 1605 \
               8801 8802 8830 \
               2413 4307 4324 4661 4751 6178 9432 9433 9437 9613 9697 9735 9766
 
-# Cryptocurrency pairs (20 pairs)
-CRYPTO_PAIRS = BTC-USD ETH-USD BNB-USD XRP-USD ADA-USD \
-               SOL-USD DOGE-USD DOT-USD MATIC-USD AVAX-USD \
-               LINK-USD UNI-USD ATOM-USD LTC-USD ETC-USD \
-               XLM-USD ALGO-USD VET-USD FIL-USD AAVE-USD
+# Cryptocurrency pairs (20 pairs) - Updated names without -USD suffix
+CRYPTO_PAIRS = AAVE ADA ALGO ATOM AVAX \
+               BNB BTC DOGE DOT ETC \
+               ETH FIL LINK LTC MATIC \
+               SOL UNI VET XLM XRP
 
 # ================================================================================
 # Build Targets
@@ -72,10 +72,54 @@ $(TARGET): $(SOURCE)
 # Execution Targets
 # ================================================================================
 
-# Run all stocks (225 stocks)
+# Run all cryptocurrencies (default: 20 cryptocurrencies)
 run: $(TARGET)
 	@echo "=========================================="
-	@echo "  Running Full Batch Analysis"
+	@echo "  Running Crypto Batch Analysis"
+	@echo "  Total: 20 cryptocurrencies"
+	@echo "=========================================="
+	@echo ""
+	@total=0; success=0; failed=0; \
+	for pair in $(CRYPTO_PAIRS); do \
+		total=$$((total + 1)); \
+		echo "----------------------------------------"; \
+		echo "[$$total/20] Processing: $$pair"; \
+		echo "----------------------------------------"; \
+		if ./$(TARGET) $$pair 10; then \
+			success=$$((success + 1)); \
+			echo "✓ SUCCESS: $$pair"; \
+		else \
+			failed=$$((failed + 1)); \
+			echo "✗ FAILED: $$pair"; \
+		fi; \
+		echo ""; \
+	done; \
+	echo "=========================================="; \
+	echo "  Crypto Batch Processing Complete"; \
+	echo "=========================================="; \
+	echo "Total runs:    $$total"; \
+	echo "Success:       $$success"; \
+	echo "Failed:        $$failed"; \
+	if [ $$total -gt 0 ]; then \
+		echo "Success rate:  $$((success * 100 / total))%"; \
+	fi; \
+	echo "=========================================="; \
+	echo ""
+
+# Test with cryptocurrency (BTC)
+test: $(TARGET)
+	@echo "=========================================="
+	@echo "  Test Run: Bitcoin (BTC)"
+	@echo "=========================================="
+	@echo ""
+	./$(TARGET) BTC 10
+	@echo ""
+	@echo "✓ Test complete"
+
+# Run all stocks (225 stocks)
+run-stocks: $(TARGET)
+	@echo "=========================================="
+	@echo "  Running Stock Batch Analysis"
 	@echo "  Total: 225 stocks"
 	@echo "=========================================="
 	@echo ""
@@ -95,51 +139,7 @@ run: $(TARGET)
 		echo ""; \
 	done; \
 	echo "=========================================="; \
-	echo "  Batch Processing Complete"; \
-	echo "=========================================="; \
-	echo "Total runs:    $$total"; \
-	echo "Success:       $$success"; \
-	echo "Failed:        $$failed"; \
-	if [ $$total -gt 0 ]; then \
-		echo "Success rate:  $$((success * 100 / total))%"; \
-	fi; \
-	echo "=========================================="; \
-	echo ""
-
-# Test with cryptocurrency (BTC-USD)
-test: $(TARGET)
-	@echo "=========================================="
-	@echo "  Test Run: Bitcoin (BTC-USD)"
-	@echo "=========================================="
-	@echo ""
-	./$(TARGET) BTC-USD
-	@echo ""
-	@echo "✓ Test complete"
-
-# Run all cryptocurrency pairs (20 pairs)
-run-crypto: $(TARGET)
-	@echo "=========================================="
-	@echo "  Running Crypto Batch Analysis"
-	@echo "  Total: 20 pairs"
-	@echo "=========================================="
-	@echo ""
-	@total=0; success=0; failed=0; \
-	for pair in $(CRYPTO_PAIRS); do \
-		total=$$((total + 1)); \
-		echo "----------------------------------------"; \
-		echo "[$$total/20] Processing: $$pair"; \
-		echo "----------------------------------------"; \
-		if ./$(TARGET) $$pair; then \
-			success=$$((success + 1)); \
-			echo "✓ SUCCESS: $$pair"; \
-		else \
-			failed=$$((failed + 1)); \
-			echo "✗ FAILED: $$pair"; \
-		fi; \
-		echo ""; \
-	done; \
-	echo "=========================================="; \
-	echo "  Crypto Batch Processing Complete"; \
+	echo "  Stock Batch Processing Complete"; \
 	echo "=========================================="; \
 	echo "Total runs:    $$total"; \
 	echo "Success:       $$success"; \
@@ -175,6 +175,7 @@ clean:
 clean-all: clean
 	@echo "Removing all output files..."
 	rm -rf output/
+	rm -rf crypto_data/output/
 	@echo "✓ Deep clean complete"
 
 # Show help
@@ -185,19 +186,25 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make            - Build the executable"
-	@echo "  make run        - Run all 225 Nikkei stocks"
-	@echo "  make run-crypto - Run all 20 crypto pairs"
-	@echo "  make test       - Test with BTC-USD"
-	@echo "  make run-stock  - Run specific stock"
+	@echo "  make run        - Run all 20 cryptocurrencies (DEFAULT)"
+	@echo "  make run-stocks - Run all 225 Nikkei stocks"
+	@echo "  make test       - Test with BTC"
+	@echo "  make run-stock  - Run specific stock/crypto"
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make clean-all  - Remove all output files"
 	@echo "  make help       - Show this help message"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make test                      # BTC-USD"
-	@echo "  make run-stock CODE=BTC-USD    # Bitcoin"
-	@echo "  make run-stock CODE=ETH-USD    # Ethereum"
+	@echo "  make                           # Build"
+	@echo "  make run                       # All 20 cryptocurrencies"
+	@echo "  make test                      # Bitcoin (BTC) only"
+	@echo "  make run-stock CODE=BTC        # Bitcoin"
+	@echo "  make run-stock CODE=ETH        # Ethereum"
+	@echo "  make run-stocks                # All 225 stocks"
 	@echo "  make run-stock CODE=7203       # Toyota (stock)"
 	@echo ""
+	@echo "Cryptocurrencies (20):"
+	@echo "  $(CRYPTO_PAIRS)"
+	@echo ""
 
-.PHONY: all run run-crypto test run-stock clean clean-all help
+.PHONY: all run run-stocks test run-stock clean clean-all help

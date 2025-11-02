@@ -41,6 +41,7 @@
 #define MAX_TIME_DELAY_PHASE2 4 // Phase 2での最大時間遅延（t-3まで参照可能）
 #define MIN_TIME_DELAY 0        // 最小時間遅延（現在時点）
 #define PREDICTION_SPAN 1       // 予測スパン（t+1を予測）
+#define FUTURE_SPAN 3           // 未来予測範囲（検証CSVに出力: t+1, t+2, ..., t+FUTURE_SPAN）
 #define ADAPTIVE_DELAY 1        // 適応的遅延学習の有効化（1:有効、0:無効）
 
 /* ディレクトリ構造
@@ -250,13 +251,9 @@ struct temporal_rule
     int antecedent_attrs[MAX_ATTRIBUTES]; // 属性ID配列（1-indexed、0は未使用）
     int time_delays[MAX_ATTRIBUTES];      // 各属性の時間遅延（0=t, 1=t-1, ...）
 
-    // 予測値の統計
-    double x_mean;  // X予測値の平均（CSVのX列：翌日の変化率）
-    double x_sigma; // X予測値の標準偏差
-
-    // X+1予測値の統計
-    double x_plus1_mean;  // X+1予測値の平均（CSVのX+1列：翌々日の変化率）
-    double x_plus1_sigma; // X+1予測値の標準偏差
+    // 未来予測値の統計（t+1, t+2, ..., t+FUTURE_SPAN）
+    double future_mean[FUTURE_SPAN];  // 各未来時点の予測値平均
+    double future_sigma[FUTURE_SPAN]; // 各未来時点の予測値標準偏差
 
     // ルールの品質指標
     int support_count;     // サポートカウント（マッチした回数）
@@ -307,8 +304,7 @@ struct trial_state
 /* データバッファ（動的割り当て）
    CSVから読み込んだデータを保持 */
 int **data_buffer = NULL;           // 属性データ [レコード数][属性数]
-double *x_buffer = NULL;            // X値（CSVのX列：翌日の変化率）[レコード数]
-double *x_plus1_buffer = NULL;      // X+1値（CSVのX+1列：翌々日の変化率）[レコード数]
+double *x_buffer = NULL;            // X値（CSVのX列：現在時点の変化率）[レコード数]
 char **timestamp_buffer = NULL;     // タイムスタンプ [レコード数][最大50文字]
 char **attribute_dictionary = NULL; // 属性名辞書 [属性数+3][最大50文字]
 
@@ -338,17 +334,16 @@ int ***node_structure = NULL; // [個体数][ノード数][3(属性,接続,遅�
 
 /* 評価統計配列（動的割り当て）
    ルール評価時の各種統計を保持 */
-int ***match_count = NULL;            // マッチカウント [個体][処理ノード][深さ]
-int ***negative_count = NULL;         // ネガティブカウント
-int ***evaluation_count = NULL;       // 評価カウント
-int ***attribute_chain = NULL;        // 属性チェーン（評価中の属性列）
-int ***time_delay_chain = NULL;       // 時間遅延チェーン
-double ***x_sum = NULL;               // X値の合計（CSVのX列）
-double ***x_sigma_array = NULL;       // X値の二乗和（分散計算用）
-double ***x_plus1_sum = NULL;         // X+1値の合計（CSVのX+1列）
-double ***x_plus1_sigma_array = NULL; // X+1値の二乗和（分散計算用）
+int ***match_count = NULL;       // マッチカウント [個体][処理ノード][深さ]
+int ***negative_count = NULL;    // ネガティブカウント
+int ***evaluation_count = NULL;  // 評価カウント
+int ***attribute_chain = NULL;   // 属性チェーン（評価中の属性列）
+int ***time_delay_chain = NULL;  // 時間遅延チェーン
 
-// T（時間）統計配列は削除されました（不要な指標のため）
+/* 未来予測統計配列（4次元・動的割り当て）
+   [個体][処理ノード][深さ][FUTURE_SPAN] */
+double ****future_sum = NULL;         // 未来値の合計（t+1, t+2, ..., t+FUTURE_SPAN）
+double ****future_sigma_array = NULL; // 未来値の二乗和（分散計算用）
 
 /* 属性使用統計（動的割り当て）
    適応的学習のための属性使用履歴 */
@@ -381,12 +376,17 @@ int *attribute_set = NULL;               // 属性セット
 
 /* データ列のインデックス
    CSVのどの列がX値とタイムスタンプかを記録 */
-int x_column_index = -1;       // X列のインデックス（t+1予測値）
-int x_plus1_column_index = -1; // X+1列のインデックス（t+2予測値）
-int t_column_index = -1;       // T列（タイムスタンプ）のインデックス
+int x_column_index = -1; // X列のインデックス（現在時点の変化率）
+int t_column_index = -1; // T列（タイムスタンプ）のインデックス
 
 /* 統計情報 */
 int rules_by_min_attributes = 0; // 最小属性数を満たすルール数
+
+/* ================================================================================
+   関数プロトタイプ宣言
+   ================================================================================
+*/
+double get_future_value(int row_idx, int offset);
 
 /* ================================================================================
    メモリ管理関数
@@ -395,6 +395,156 @@ int rules_by_min_attributes = 0; // 最小属性数を満たすルール数
    Phase 2ではactual_X用の配列も追加で割り当てます。
    ================================================================================
 */
+
+/**
+ * 未来予測統計用4次元配列を動的割り当て
+ * [個体][処理ノード][深さ][FUTURE_SPAN]
+ */
+void allocate_future_arrays()
+{
+    int i, j, k, offset;
+
+    /* future_sum配列の割り当て */
+    future_sum = (double ****)malloc(Nkotai * sizeof(double ***));
+    if (future_sum == NULL)
+    {
+        fprintf(stderr, "ERROR: Failed to allocate future_sum (dimension 1)\n");
+        exit(1);
+    }
+
+    for (i = 0; i < Nkotai; i++)
+    {
+        future_sum[i] = (double ***)malloc(Npn * sizeof(double **));
+        if (future_sum[i] == NULL)
+        {
+            fprintf(stderr, "ERROR: Failed to allocate future_sum (dimension 2)\n");
+            exit(1);
+        }
+
+        for (j = 0; j < Npn; j++)
+        {
+            future_sum[i][j] = (double **)malloc(MAX_DEPTH * sizeof(double *));
+            if (future_sum[i][j] == NULL)
+            {
+                fprintf(stderr, "ERROR: Failed to allocate future_sum (dimension 3)\n");
+                exit(1);
+            }
+
+            for (k = 0; k < MAX_DEPTH; k++)
+            {
+                future_sum[i][j][k] = (double *)calloc(FUTURE_SPAN, sizeof(double));
+                if (future_sum[i][j][k] == NULL)
+                {
+                    fprintf(stderr, "ERROR: Failed to allocate future_sum (dimension 4)\n");
+                    exit(1);
+                }
+            }
+        }
+    }
+
+    /* future_sigma_array配列の割り当て */
+    future_sigma_array = (double ****)malloc(Nkotai * sizeof(double ***));
+    if (future_sigma_array == NULL)
+    {
+        fprintf(stderr, "ERROR: Failed to allocate future_sigma_array (dimension 1)\n");
+        exit(1);
+    }
+
+    for (i = 0; i < Nkotai; i++)
+    {
+        future_sigma_array[i] = (double ***)malloc(Npn * sizeof(double **));
+        if (future_sigma_array[i] == NULL)
+        {
+            fprintf(stderr, "ERROR: Failed to allocate future_sigma_array (dimension 2)\n");
+            exit(1);
+        }
+
+        for (j = 0; j < Npn; j++)
+        {
+            future_sigma_array[i][j] = (double **)malloc(MAX_DEPTH * sizeof(double *));
+            if (future_sigma_array[i][j] == NULL)
+            {
+                fprintf(stderr, "ERROR: Failed to allocate future_sigma_array (dimension 3)\n");
+                exit(1);
+            }
+
+            for (k = 0; k < MAX_DEPTH; k++)
+            {
+                future_sigma_array[i][j][k] = (double *)calloc(FUTURE_SPAN, sizeof(double));
+                if (future_sigma_array[i][j][k] == NULL)
+                {
+                    fprintf(stderr, "ERROR: Failed to allocate future_sigma_array (dimension 4)\n");
+                    exit(1);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 未来予測統計用配列を0で初期化
+ */
+void initialize_future_arrays()
+{
+    int i, j, k, offset;
+
+    for (i = 0; i < Nkotai; i++)
+    {
+        for (j = 0; j < Npn; j++)
+        {
+            for (k = 0; k < MAX_DEPTH; k++)
+            {
+                for (offset = 0; offset < FUTURE_SPAN; offset++)
+                {
+                    future_sum[i][j][k][offset] = 0.0;
+                    future_sigma_array[i][j][k][offset] = 0.0;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 未来予測統計用配列のメモリを解放
+ */
+void free_future_arrays()
+{
+    int i, j, k;
+
+    if (future_sum != NULL)
+    {
+        for (i = 0; i < Nkotai; i++)
+        {
+            for (j = 0; j < Npn; j++)
+            {
+                for (k = 0; k < MAX_DEPTH; k++)
+                {
+                    free(future_sum[i][j][k]);
+                }
+                free(future_sum[i][j]);
+            }
+            free(future_sum[i]);
+        }
+        free(future_sum);
+    }
+
+    if (future_sigma_array != NULL)
+    {
+        for (i = 0; i < Nkotai; i++)
+        {
+            for (j = 0; j < Npn; j++)
+            {
+                for (k = 0; k < MAX_DEPTH; k++)
+                {
+                    free(future_sigma_array[i][j][k]);
+                }
+                free(future_sigma_array[i][j]);
+            }
+            free(future_sigma_array[i]);
+        }
+        free(future_sigma_array);
+    }
+}
 
 /**
  * プログラムで使用する全ての動的メモリを割り当てる
@@ -412,11 +562,8 @@ void allocate_dynamic_memory()
         data_buffer[i] = (int *)malloc(Nzk * sizeof(int));
     }
 
-    // 1次元配列：各レコードのX値（CSVのX列：翌日の変化率）
+    // 1次元配列：各レコードのX値（CSVのX列：現在時点の変化率）
     x_buffer = (double *)malloc(Nrd * sizeof(double));
-
-    // 1次元配列：各レコードのX+1値（CSVのX+1列：翌々日の変化率）
-    x_plus1_buffer = (double *)malloc(Nrd * sizeof(double));
 
     // 2次元配列：各レコードのタイムスタンプ文字列
     timestamp_buffer = (char **)malloc(Nrd * sizeof(char *));
@@ -453,16 +600,6 @@ void allocate_dynamic_memory()
     attribute_chain = (int ***)malloc(Nkotai * sizeof(int **));
     time_delay_chain = (int ***)malloc(Nkotai * sizeof(int **));
 
-    // 予測値の統計配列（X: t+1）
-    x_sum = (double ***)malloc(Nkotai * sizeof(double **));
-    x_sigma_array = (double ***)malloc(Nkotai * sizeof(double **));
-
-    // X+1予測値の統計配列（t+2）
-    x_plus1_sum = (double ***)malloc(Nkotai * sizeof(double **));
-    x_plus1_sigma_array = (double ***)malloc(Nkotai * sizeof(double **));
-
-    // T（時間）の統計配列は削除されました（不要な指標のため）
-
     // 各個体・処理ノード・深さごとに配列を割り当て
     for (i = 0; i < Nkotai; i++)
     {
@@ -471,10 +608,6 @@ void allocate_dynamic_memory()
         evaluation_count[i] = (int **)malloc(Npn * sizeof(int *));
         attribute_chain[i] = (int **)malloc(Npn * sizeof(int *));
         time_delay_chain[i] = (int **)malloc(Npn * sizeof(int *));
-        x_sum[i] = (double **)malloc(Npn * sizeof(double *));
-        x_sigma_array[i] = (double **)malloc(Npn * sizeof(double *));
-        x_plus1_sum[i] = (double **)malloc(Npn * sizeof(double *));
-        x_plus1_sigma_array[i] = (double **)malloc(Npn * sizeof(double *));
 
         for (j = 0; j < Npn; j++)
         {
@@ -483,12 +616,11 @@ void allocate_dynamic_memory()
             evaluation_count[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             attribute_chain[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             time_delay_chain[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
-            x_sum[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
-            x_sigma_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
-            x_plus1_sum[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
-            x_plus1_sigma_array[i][j] = (double *)malloc(MAX_DEPTH * sizeof(double));
         }
     }
+
+    /* 未来予測統計配列の割り当て（4次元） */
+    allocate_future_arrays();
 
     /* 属性使用統計の割り当て */
     // 適応的学習のための履歴管理
@@ -554,7 +686,6 @@ void free_dynamic_memory()
     }
 
     free(x_buffer);
-    free(x_plus1_buffer);
 
     /* タイムスタンプバッファ解放 */
     if (timestamp_buffer != NULL)
@@ -602,31 +733,22 @@ void free_dynamic_memory()
                 free(evaluation_count[i][j]);
                 free(attribute_chain[i][j]);
                 free(time_delay_chain[i][j]);
-                free(x_sum[i][j]);
-                free(x_sigma_array[i][j]);
-                free(x_plus1_sum[i][j]);
-                free(x_plus1_sigma_array[i][j]);
             }
             free(match_count[i]);
             free(negative_count[i]);
             free(evaluation_count[i]);
             free(attribute_chain[i]);
             free(time_delay_chain[i]);
-            free(x_sum[i]);
-            free(x_sigma_array[i]);
-            free(x_plus1_sum[i]);
-            free(x_plus1_sigma_array[i]);
         }
         free(match_count);
         free(negative_count);
         free(evaluation_count);
         free(attribute_chain);
         free(time_delay_chain);
-        free(x_sum);
-        free(x_sigma_array);
-        free(x_plus1_sum);
-        free(x_plus1_sigma_array);
     }
+
+    /* 未来予測統計配列解放（4次元） */
+    free_future_arrays();
 
     /* 属性使用統計解放 */
     if (attribute_usage_history != NULL)
@@ -767,12 +889,6 @@ int load_csv_with_header()
                 x_column_index = col;
                 printf("Found X column at index %d\n", col);
             }
-            // X+1列の検出（翌々日の変化率）
-            else if (strcmp(token, "X+1") == 0)
-            {
-                x_plus1_column_index = col;
-                printf("Found X+1 column at index %d\n", col);
-            }
             // T列の検出（タイムスタンプ）
             else if (strcmp(token, "T") == 0 || strcmp(token, "timestamp") == 0)
             {
@@ -816,13 +932,8 @@ int load_csv_with_header()
             // カラムタイプに応じて適切なバッファに格納
             if (col == x_column_index)
             {
-                // X値を読み込み（翌日の変化率）
+                // X値を読み込み（現在時点の変化率）
                 x_buffer[row] = atof(token);
-            }
-            else if (col == x_plus1_column_index)
-            {
-                // X+1値を読み込み（翌々日の変化率）
-                x_plus1_buffer[row] = atof(token);
             }
             else if (col == t_column_index)
             {
@@ -950,11 +1061,12 @@ void initialize_rule_pool()
             compare_rules[i].antecedent_attrs[j] = 0;
         }
 
-        // 統計値の初期化
-        rule_pool[i].x_mean = 0;
-        rule_pool[i].x_sigma = 0;
-        rule_pool[i].x_plus1_mean = 0;
-        rule_pool[i].x_plus1_sigma = 0;
+        // 未来予測統計値の初期化（t+1, t+2, ..., t+FUTURE_SPAN）
+        for (int k = 0; k < FUTURE_SPAN; k++)
+        {
+            rule_pool[i].future_mean[k] = 0.0;
+            rule_pool[i].future_sigma[k] = 0.0;
+        }
         rule_pool[i].support_count = 0;
         rule_pool[i].negative_count = 0;
         rule_pool[i].high_support_flag = 0;
@@ -1206,11 +1318,12 @@ void initialize_individual_statistics()
                 negative_count[individual][k][i] = 0;
                 evaluation_count[individual][k][i] = 0;
 
-                // 統計値のクリア
-                x_sum[individual][k][i] = 0;
-                x_sigma_array[individual][k][i] = 0;
-                x_plus1_sum[individual][k][i] = 0;
-                x_plus1_sigma_array[individual][k][i] = 0;
+                // 未来予測統計値のクリア（FUTURE_SPAN個）
+                for (int offset = 0; offset < FUTURE_SPAN; offset++)
+                {
+                    future_sum[individual][k][i][offset] = 0.0;
+                    future_sigma_array[individual][k][i][offset] = 0.0;
+                }
             }
         }
     }
@@ -1231,18 +1344,15 @@ void initialize_individual_statistics()
  */
 void evaluate_single_instance(int time_index)
 {
-    double future_x;       // 予測対象X（翌日の変化率）
-    double future_x_plus1; // 予測対象X+1（翌々日の変化率）
+    double future_x; // 予測対象X（現在時点の変化率）
     int current_node_id, depth, match_flag;
     int time_delay, data_index;
     int individual, k;
 
     // 予測対象を取得
     // 時点time_indexのルール発見時に予測する値：
-    // - X: 時点time_indexの行のX列（翌日の変化率、既にshift(-1)済み）
-    // - X+1: 時点time_indexの行のX+1列（翌々日の変化率、既にshift(-2)済み）
-    future_x = x_buffer[time_index];             // X列から取得
-    future_x_plus1 = x_plus1_buffer[time_index]; // X+1列から取得
+    // - X: 時点time_indexの行のX列（現在時点の変化率、シフトなし）
+    future_x = x_buffer[time_index]; // X列から取得
 
     // 全個体に対して評価を実行
     for (individual = 0; individual < Nkotai; individual++)
@@ -1296,13 +1406,16 @@ void evaluate_single_instance(int time_index)
                         // マッチ継続中の場合、統計を更新
                         match_count[individual][k][depth]++;
 
-                        // X予測値の累積（翌日の変化率）
-                        x_sum[individual][k][depth] += future_x;
-                        x_sigma_array[individual][k][depth] += future_x * future_x;
-
-                        // X+1予測値の累積（翌々日の変化率）
-                        x_plus1_sum[individual][k][depth] += future_x_plus1;
-                        x_plus1_sigma_array[individual][k][depth] += future_x_plus1 * future_x_plus1;
+                        // 未来予測値の累積（t+1, t+2, ..., t+FUTURE_SPAN）
+                        for (int offset = 0; offset < FUTURE_SPAN; offset++)
+                        {
+                            double future_val = get_future_value(time_index, offset + 1);
+                            if (!isnan(future_val))
+                            {
+                                future_sum[individual][k][depth][offset] += future_val;
+                                future_sigma_array[individual][k][depth][offset] += future_val * future_val;
+                            }
+                        }
                     }
                     evaluation_count[individual][k][depth]++;
                     // 次の判定ノードへ
@@ -1387,50 +1500,36 @@ void calculate_rule_statistics()
                 {
                     int n = match_count[individual][k][j];
 
-                    // X予測値の平均を計算（翌日の変化率）
-                    x_sum[individual][k][j] /= (double)n;
-
-                    // X+1予測値の平均を計算（翌々日の変化率）
-                    x_plus1_sum[individual][k][j] /= (double)n;
-
-                    // 予測値の標準偏差を計算（不偏標準偏差）
-                    if (n > 1)
+                    // 未来予測値の平均と標準偏差を計算（t+1, t+2, ..., t+FUTURE_SPAN）
+                    for (int offset = 0; offset < FUTURE_SPAN; offset++)
                     {
-                        // Xの標本分散を計算
-                        double variance = x_sigma_array[individual][k][j] / (double)n -
-                                          x_sum[individual][k][j] * x_sum[individual][k][j];
+                        // 平均を計算
+                        double mean = future_sum[individual][k][j][offset] / (double)n;
+                        future_sum[individual][k][j][offset] = mean; // 平均値で上書き
 
-                        // 負の分散を防ぐ（数値誤差対策）
-                        if (variance < 0)
+                        // 標準偏差を計算（不偏標準偏差）
+                        if (n > 1)
                         {
-                            variance = 0;
+                            // 標本分散を計算
+                            double variance = future_sigma_array[individual][k][j][offset] / (double)n -
+                                              mean * mean;
+
+                            // 負の分散を防ぐ（数値誤差対策）
+                            if (variance < 0)
+                            {
+                                variance = 0;
+                            }
+
+                            // 不偏分散に変換: s² = n/(n-1) * σ²
+                            variance = variance * n / (n - 1);
+
+                            future_sigma_array[individual][k][j][offset] = sqrt(variance);
                         }
-
-                        // 不偏分散に変換: s² = n/(n-1) * σ²
-                        variance = variance * n / (n - 1);
-
-                        x_sigma_array[individual][k][j] = sqrt(variance);
-
-                        // X+1の標本分散を計算
-                        double variance_plus1 = x_plus1_sigma_array[individual][k][j] / (double)n -
-                                                x_plus1_sum[individual][k][j] * x_plus1_sum[individual][k][j];
-
-                        // 負の分散を防ぐ
-                        if (variance_plus1 < 0)
+                        else
                         {
-                            variance_plus1 = 0;
+                            // サンプル数が1の場合、標準偏差は計算不可
+                            future_sigma_array[individual][k][j][offset] = 0;
                         }
-
-                        // 不偏分散に変換
-                        variance_plus1 = variance_plus1 * n / (n - 1);
-
-                        x_plus1_sigma_array[individual][k][j] = sqrt(variance_plus1);
-                    }
-                    else
-                    {
-                        // サンプル数が1の場合、標準偏差は計算不可
-                        x_sigma_array[individual][k][j] = 0;
-                        x_plus1_sigma_array[individual][k][j] = 0;
                     }
                 }
             }
@@ -1551,8 +1650,7 @@ void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, in
  * @param depth 深さ
  */
 void register_new_rule(struct trial_state *state, int *rule_candidate, int *time_delays,
-                       double x_mean, double x_sigma,
-                       double x_plus1_mean, double x_plus1_sigma,
+                       double *future_mean, double *future_sigma,
                        int support_count, int negative_count_val, double support_value,
                        int num_attributes,
                        int individual, int k, int depth)
@@ -1567,11 +1665,12 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
         rule_pool[idx].time_delays[i] = (rule_candidate[i] > 0) ? time_delays[i] : 0;
     }
 
-    // ルールの統計値を設定
-    rule_pool[idx].x_mean = x_mean;
-    rule_pool[idx].x_sigma = x_sigma;
-    rule_pool[idx].x_plus1_mean = x_plus1_mean;
-    rule_pool[idx].x_plus1_sigma = x_plus1_sigma;
+    // 未来予測統計値を設定（t+1, t+2, ..., t+FUTURE_SPAN）
+    for (i = 0; i < FUTURE_SPAN; i++)
+    {
+        rule_pool[idx].future_mean[i] = future_mean[i];
+        rule_pool[idx].future_sigma[i] = future_sigma[i];
+    }
     rule_pool[idx].support_count = support_count;
     rule_pool[idx].negative_count = negative_count_val;
     rule_pool[idx].support_rate = support_value; // サポート率を保存
@@ -1590,9 +1689,9 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
         state->high_support_rule_count++;
     }
 
-    // 低分散フラグの設定
+    // 低分散フラグの設定（t+1のσを使用）
     int low_variance_marker = 0;
-    if (x_sigma <= (Maxsigx - LOW_VARIANCE_REDUCTION))
+    if (future_sigma[0] <= (Maxsigx - LOW_VARIANCE_REDUCTION))
     {
         low_variance_marker = 1;
     }
@@ -1740,11 +1839,13 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
         for (loop_j = MIN_ATTRIBUTES; loop_j < 9; loop_j++)
         {
             // 現在の深さの統計を取得
-            double x_mean = x_sum[individual][k][loop_j];
-            double sigma_x = x_sigma_array[individual][k][loop_j];
             int matched_count = match_count[individual][k][loop_j];
             double support = calculate_support_value(matched_count,
                                                      negative_count[individual][k][loop_j]);
+
+            // 未来予測統計へのポインタを取得
+            double *future_mean_ptr = future_sum[individual][k][loop_j];
+            double *future_sigma_ptr = future_sigma_array[individual][k][loop_j];
 
             // 属性チェーンをコピー
             for (i2 = 1; i2 < 9; i2++)
@@ -1774,8 +1875,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // ルールの品質チェック（初期チェック、t_interval_stdは後で確認）
-            if (check_rule_quality(x_mean, sigma_x, support, j2, -1.0))
+            // ルールの品質チェック（t+1の統計を使用、t_interval_stdは後で確認）
+            if (check_rule_quality(future_mean_ptr[0], future_sigma_ptr[0], support, j2, -1.0))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {
@@ -1784,8 +1885,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     {
                         // 新規ルールとして登録
                         register_new_rule(state, rule_candidate, time_delay_memo,
-                                          x_sum[individual][k][loop_j], sigma_x,
-                                          x_plus1_sum[individual][k][loop_j], x_plus1_sigma_array[individual][k][loop_j],
+                                          future_mean_ptr, future_sigma_ptr,
                                           matched_count, negative_count[individual][k][loop_j],
                                           support, j2,
                                           individual, k, loop_j);
@@ -1793,11 +1893,11 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
 
-                        // 適応度を更新（新規ルールボーナス付き）
+                        // 適応度を更新（新規ルールボーナス付き、t+1のσを使用）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
-                            FITNESS_SIGMA_WEIGHT / (sigma_x + FITNESS_SIGMA_OFFSET) +
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
                             FITNESS_NEW_RULE_BONUS;
 
                         // 属性使用履歴を更新
@@ -1814,11 +1914,11 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     }
                     else
                     {
-                        // 重複ルールの場合（新規ボーナスなし）
+                        // 重複ルールの場合（新規ボーナスなし、t+1のσを使用）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
-                            FITNESS_SIGMA_WEIGHT / (sigma_x + FITNESS_SIGMA_OFFSET);
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET);
                     }
 
                     // ルール数上限チェック
@@ -2417,10 +2517,16 @@ void write_local_output(struct trial_state *state)
             }
         }
 
-        // 予測値の統計
-        fprintf(file, "%8.3f\t%5.3f\t%d\t%6.4f\t%2d\t%2d\t",
-                rule_pool[i].x_mean,
-                rule_pool[i].x_sigma,
+        // 未来予測統計（t+1, t+2, ..., t+FUTURE_SPAN）
+        for (int k = 0; k < FUTURE_SPAN; k++)
+        {
+            fprintf(file, "%8.3f\t%5.3f\t",
+                    rule_pool[i].future_mean[k],
+                    rule_pool[i].future_sigma[k]);
+        }
+
+        // その他の統計
+        fprintf(file, "%d\t%6.4f\t%2d\t%2d\t",
                 rule_pool[i].support_count,
                 rule_pool[i].support_rate,
                 rule_pool[i].high_support_flag,
@@ -2525,9 +2631,17 @@ void write_global_pool(struct trial_state *state)
     /* ファイルA：詳細版（TSV形式） */
     if (file_a != NULL)
     {
-        // ヘッダー行
+        // ヘッダー行（属性列）
         fprintf(file_a, "Attr1\tAttr2\tAttr3\tAttr4\tAttr5\tAttr6\tAttr7\tAttr8\t");
-        fprintf(file_a, "X_mean\tX_sigma\tX+1_mean\tX+1_sigma\tsupport_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\n");
+
+        // 未来予測統計列（動的生成）
+        for (int k = 1; k <= FUTURE_SPAN; k++)
+        {
+            fprintf(file_a, "X(t+%d)_mean\tX(t+%d)_sigma\t", k, k);
+        }
+
+        // その他の統計列
+        fprintf(file_a, "support_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\n");
 
         // グローバルプールの全ルールを出力
         for (i = 0; i < global_rule_count; i++)
@@ -2548,10 +2662,16 @@ void write_global_pool(struct trial_state *state)
                 }
             }
 
-            // 予測値の統計（X: t+1, X+1: t+2）
-            fprintf(file_a, "%8.3f\t%5.3f\t%8.3f\t%5.3f\t%d\t%6.4f\t%d\t%d\t%d\t",
-                    global_rule_pool[i].x_mean, global_rule_pool[i].x_sigma,
-                    global_rule_pool[i].x_plus1_mean, global_rule_pool[i].x_plus1_sigma,
+            // 未来予測統計（t+1, t+2, ..., t+FUTURE_SPAN）
+            for (int k = 0; k < FUTURE_SPAN; k++)
+            {
+                fprintf(file_a, "%8.3f\t%5.3f\t",
+                        global_rule_pool[i].future_mean[k],
+                        global_rule_pool[i].future_sigma[k]);
+            }
+
+            // その他の統計
+            fprintf(file_a, "%d\t%6.4f\t%d\t%d\t%d\t",
                     global_rule_pool[i].support_count, global_rule_pool[i].support_rate,
                     global_rule_pool[i].negative_count,
                     global_rule_pool[i].high_support_flag, global_rule_pool[i].low_variance_flag);
@@ -2592,11 +2712,17 @@ void write_global_pool(struct trial_state *state)
             }
 
             fprintf(file_b, "\n");
-            fprintf(file_b, "   => X: %.3f±%.3f\n",
-                    global_rule_pool[i].x_mean, global_rule_pool[i].x_sigma);
-            fprintf(file_b, "      X+1: %.3f±%.3f (n=%d)\n",
-                    global_rule_pool[i].x_plus1_mean, global_rule_pool[i].x_plus1_sigma,
-                    global_rule_pool[i].support_count);
+
+            // 未来予測統計を出力（t+1, t+2, ..., t+FUTURE_SPAN）
+            for (int k = 0; k < FUTURE_SPAN; k++)
+            {
+                fprintf(file_b, "   => X(t+%d): %.3f±%.3f\n",
+                        k + 1,
+                        global_rule_pool[i].future_mean[k],
+                        global_rule_pool[i].future_sigma[k]);
+            }
+            fprintf(file_b, "      Support: n=%d\n", global_rule_pool[i].support_count);
+            fprintf(file_b, "      Note: For detailed verification data, see verification CSV\n");
         }
 
         fclose(file_b);
@@ -2604,61 +2730,23 @@ void write_global_pool(struct trial_state *state)
 }
 
 /**
- * 検証用サマリーファイルを出力
- * 属性辞書とルール一覧を出力
+ * 未来の特定時点の変化率を取得
+ * @param row_idx マッチした行のインデックス
+ * @param offset 未来のオフセット（1=t+1, 2=t+2, 3=t+3, ...）
+ * @return 未来時点のX値（範囲外の場合はNAN）
  */
-void write_verification_summary()
+double get_future_value(int row_idx, int offset)
 {
-    char summary_file[512];
-    snprintf(summary_file, sizeof(summary_file), "%s/verification_summary.txt", output_dir_pool);
+    int future_idx = row_idx + offset;
 
-    FILE *file = fopen(summary_file, "w");
-    if (file == NULL)
+    // データ範囲チェック
+    if (future_idx >= Nrd)
     {
-        printf("警告: 検証サマリーファイルを開けません: %s\n", summary_file);
-        return;
+        return NAN; // データ終端を超えた
     }
 
-    // 属性辞書を出力
-    fprintf(file, "=== Attribute Dictionary (CSV Column Index, 0-indexed) ===\n");
-    for (int i = 0; i < Nzk; i++)
-    {
-        fprintf(file, "Column %d: %s\n", i, attribute_dictionary[i]);
-    }
-
-    fprintf(file, "\nSpecial Columns:\n");
-    fprintf(file, "Column %d: X (next day's rate)\n", Nzk);
-    fprintf(file, "Column %d: X+1 (day after next's rate)\n", Nzk + 1);
-    fprintf(file, "Column %d: T (timestamp)\n", Nzk + 2);
-    fprintf(file, "\nTotal Attributes: %d\n", Nzk);
-    fprintf(file, "Total Records: %d\n", Nrd);
-    fprintf(file, "Data File: %s\n\n", data_file_path);
-
-    // ルール検証インデックスを出力
-    fprintf(file, "=== Rule Verification Index ===\n");
-    for (int i = 0; i < global_rule_count; i++)
-    {
-        fprintf(file, "Rule %d: [", i + 1);
-
-        // 属性とカラム番号を出力
-        int first = 1;
-        for (int j = 0; j < MAX_ATTRIBUTES; j++)
-        {
-            int attr = global_rule_pool[i].antecedent_attrs[j];
-            if (attr > 0)
-            {
-                if (!first)
-                    fprintf(file, ", ");
-                fprintf(file, "Col%d(t-%d)", attr - 1, global_rule_pool[i].time_delays[j]);
-                first = 0;
-            }
-        }
-
-        fprintf(file, "] => n=%d, File=verification/rule_%03d.csv\n",
-                global_rule_pool[i].matched_count_vis, i + 1);
-    }
-
-    fclose(file);
+    // 未来時点のX値を返す
+    return x_buffer[future_idx];
 }
 
 /**
@@ -2679,8 +2767,8 @@ void write_rule_verification_csv(int rule_idx)
 
     struct temporal_rule *rule = &global_rule_pool[rule_idx];
 
-    // CSVヘッダー（タイムスタンプを追加）
-    fprintf(file, "RowIndex,Timestamp,X,X+1");
+    // CSVヘッダー（列順: RowIndex,Timestamp,Attr1,...,X(t+1),X(t+2),...）
+    fprintf(file, "RowIndex,Timestamp");
     for (int j = 0; j < MAX_ATTRIBUTES; j++)
     {
         int attr = rule->antecedent_attrs[j];
@@ -2689,19 +2777,22 @@ void write_rule_verification_csv(int rule_idx)
             fprintf(file, ",Attr%d_Col%d_t-%d", j + 1, attr - 1, rule->time_delays[j]);
         }
     }
+    // 未来予測列のヘッダー（FUTURE_SPAN個）
+    for (int k = 1; k <= FUTURE_SPAN; k++)
+    {
+        fprintf(file, ",X(t+%d)", k);
+    }
     fprintf(file, "\n");
 
     // 全マッチインスタンスを出力
     for (int i = 0; i < rule->matched_count_vis; i++)
     {
         int row_idx = rule->matched_indices[i];
-        fprintf(file, "%d,%s,%.2f,%.2f",
+        fprintf(file, "%d,%s",
                 row_idx,
-                timestamp_buffer[row_idx],
-                x_buffer[row_idx],
-                x_plus1_buffer[row_idx]);
+                timestamp_buffer[row_idx]);
 
-        // 各属性の値を出力
+        // 各属性の値を出力（属性名(日付) または 0）
         for (int j = 0; j < MAX_ATTRIBUTES; j++)
         {
             int attr = rule->antecedent_attrs[j];
@@ -2711,12 +2802,35 @@ void write_rule_verification_csv(int rule_idx)
                 int data_idx = row_idx - delay;
                 if (data_idx >= 0 && data_idx < Nrd)
                 {
-                    fprintf(file, ",%d", data_buffer[data_idx][attr - 1]);
+                    if (data_buffer[data_idx][attr - 1] == 1)
+                    {
+                        // マッチしている場合: 属性名(日付)
+                        fprintf(file, ",%s(%s)", attribute_dictionary[attr - 1], timestamp_buffer[data_idx]);
+                    }
+                    else
+                    {
+                        // マッチしていない場合: 0
+                        fprintf(file, ",0");
+                    }
                 }
                 else
                 {
                     fprintf(file, ",-");
                 }
+            }
+        }
+
+        // 未来予測値を個別に出力（t+1, t+2, ..., t+FUTURE_SPAN）
+        for (int k = 1; k <= FUTURE_SPAN; k++)
+        {
+            double future_val = get_future_value(row_idx, k);
+            if (isnan(future_val))
+            {
+                fprintf(file, ",-"); // データ範囲外
+            }
+            else
+            {
+                fprintf(file, ",%.2f", future_val);
             }
         }
         fprintf(file, "\n");
@@ -2731,10 +2845,6 @@ void write_rule_verification_csv(int rule_idx)
 void write_verification_files()
 {
     printf("\n========== Writing Rule Verification Files ==========\n");
-
-    // サマリーファイルを出力
-    write_verification_summary();
-    printf("  Verification summary: %s/verification_summary.txt\n", output_dir_pool);
 
     // 最初の10ルールのみ検証ファイルを出力（CSV形式）
     int output_count = (global_rule_count < 10) ? global_rule_count : 10;
@@ -2902,9 +3012,9 @@ void setup_paths_for_stock(const char *code)
     snprintf(data_file_path, sizeof(data_file_path),
              "crypto_data/gnminer_individual/%s.txt", stock_code);
 
-    // 出力ベースディレクトリを設定
+    // 出力ベースディレクトリを設定（暗号通貨は crypto_data/output/ 配下）
     snprintf(output_base_dir, sizeof(output_base_dir),
-             "output/%s", stock_code);
+             "crypto_data/output/%s", stock_code);
 
     // 各サブディレクトリのパスを設定
     snprintf(output_dir_il, sizeof(output_dir_il),
