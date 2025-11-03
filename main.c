@@ -51,14 +51,14 @@
 
 /* ファイル名
    入力データと出力ファイルのパスを定義 */
-#define DATANAME "crypto_data/gnminer_individual/BTC-USD.txt" // 入力データファイル（デフォルト:BTC-USD）
-#define POOL_FILE_A "output/pool/zrp01a.txt"                  // ルールプール出力A（詳細版）
-#define POOL_FILE_B "output/pool/zrp01b.txt"                  // ルールプール出力B（要約版）
-#define CONT_FILE "output/doc/zrd01.txt"                      // 統計情報ファイル
-#define RESULT_FILE "output/doc/zrmemo01.txt"                 // メモファイル（未使用）
+#define DATANAME "crypto_data/gnminer_individual/BTC.txt" // 入力データファイル（デフォルト:BTC）
+#define POOL_FILE_A "output/pool/zrp01a.txt"              // ルールプール出力A（詳細版）
+#define POOL_FILE_B "output/pool/zrp01b.txt"              // ルールプール出力B（要約版）
+#define CONT_FILE "output/doc/zrd01.txt"                  // 統計情報ファイル
+#define RESULT_FILE "output/doc/zrmemo01.txt"             // メモファイル（未使用）
 
 /* 動的ファイルパス（コマンドライン引数で変更可能） */
-char stock_code[20] = "BTC-USD";                             // 銘柄/ペアコード
+char stock_code[20] = "BTC";                                 // 銘柄/ペアコード
 char data_file_path[512] = DATANAME;                         // データファイルパス
 char output_base_dir[256] = "output";                        // 出力ベースディレクトリ
 char pool_file_a[512] = POOL_FILE_A;                         // 動的ルールプールA
@@ -328,7 +328,7 @@ double get_future_value(int row_idx, int offset);
  */
 void allocate_future_arrays()
 {
-    int i, j, k, offset;
+    int i, j, k;
 
     /* future_sum配列の割り当て */
     future_sum = (double ****)malloc(Nkotai * sizeof(double ***));
@@ -478,7 +478,7 @@ void free_future_arrays()
  */
 void allocate_dynamic_memory()
 {
-    int i, j, k;
+    int i, j;
 
     /* データバッファの割り当て */
     // 2次元配列：[レコード数][属性数]の属性データ
@@ -599,7 +599,7 @@ void allocate_dynamic_memory()
  */
 void free_dynamic_memory()
 {
-    int i, j, k;
+    int i, j;
 
     /* データバッファ解放 */
     if (data_buffer != NULL)
@@ -746,7 +746,7 @@ int load_csv_with_header()
     int row = 0;
     int col = 0;
     int attr_count = 0;
-    int i, j; /* ループ変数（C89スタイル） */
+    int i; /* ループ変数（C89スタイル） */
 
     printf("Loading CSV file with header: %s\n", data_file_path);
 
@@ -1220,7 +1220,7 @@ void copy_genes_to_nodes()
  */
 void initialize_individual_statistics()
 {
-    int individual, k, i, d;
+    int individual, k, i;
 
     for (individual = 0; individual < Nkotai; individual++)
     {
@@ -1274,15 +1274,11 @@ void initialize_individual_statistics()
  */
 void evaluate_single_instance(int time_index)
 {
-    double future_x; // 予測対象X（現在時点の変化率）
     int current_node_id, depth, match_flag;
     int time_delay, data_index;
     int individual, k;
 
-    // 予測対象を取得
-    // 時点time_indexのルール発見時に予測する値：
-    // - X: 時点time_indexの行のX列（現在時点の変化率、シフトなし）
-    future_x = x_buffer[time_index]; // X列から取得
+    // 未来値はget_future_value()で各offset(t+1, t+2, t+3, ...)ごとに取得
 
     // 全個体に対して評価を実行
     for (individual = 0; individual < Nkotai; individual++)
@@ -2231,7 +2227,6 @@ void perform_adaptive_attribute_mutation()
  */
 void update_delay_statistics(int generation)
 {
-    int total_delay_usage = 0;
     int i, j;
 
     // 過去世代の累積を計算
@@ -2244,8 +2239,6 @@ void update_delay_statistics(int generation)
         {
             delay_tracking[i] += delay_usage_history[j][i];
         }
-
-        total_delay_usage += delay_tracking[i];
     }
 
     // 履歴をシフト（古い世代を削除）
@@ -2275,7 +2268,6 @@ void update_delay_statistics(int generation)
  */
 void update_attribute_statistics(int generation)
 {
-    int total_attribute_usage = 0;
     int i, j;
 
     // カウンタをリセット
@@ -2308,12 +2300,6 @@ void update_attribute_statistics(int generation)
         {
             attribute_usage_history[0][i] = INITIAL_DELAY_HISTORY;
         }
-    }
-
-    // 総使用回数を計算
-    for (i = 0; i < Nzk; i++)
-    {
-        total_attribute_usage += attribute_tracking[i];
     }
 
     // 現世代の属性使用をカウント
@@ -3070,7 +3056,7 @@ void setup_paths_for_stock(const char *code)
  */
 int process_single_stock(const char *code)
 {
-    int trial, gen, i, prev_count;
+    int trial, gen;
     struct trial_state state;
     clock_t stock_start_time, stock_end_time;
 
