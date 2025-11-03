@@ -81,9 +81,8 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002        // 最大ルール数（メモリ制限）
 #define Minsup 0.01          // 最小サポート値（1%以上の頻度が必要)
-#define Maxsigx 5.0          // 最大X標準偏差（2.0%以下のルールのみ採用）
-#define Maxsigt_interval 5.0 // 最大T間隔標準偏差（5日以下の規則的ルールのみ採用）
-#define MIN_ATTRIBUTES 2     // ルールの最小属性数（2個以上の属性が必要）
+#define Maxsigx 3.0          // 最大標準偏差（市場σ=3.21%の93%、仮想通貨用）
+#define MIN_ATTRIBUTES 1     // ルールの最小属性数（2個以上の属性が必要）
 
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
@@ -134,7 +133,7 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* 品質判定パラメータ
    ルールの品質評価に使用する閾値とボーナス */
 #define HIGH_SUPPORT_BONUS 0.02    // 高サポートルールのボーナス閾値
-#define LOW_VARIANCE_REDUCTION 1.0 // 低分散ルールの削減値
+#define LOW_VARIANCE_REDUCTION 0.5 // 低分散閾値: Maxsigx-0.5=2.5%（市場σの78%）
 #define FITNESS_SUPPORT_WEIGHT 10  // 適応度計算：サポート値の重み
 #define FITNESS_SIGMA_OFFSET 0.1   // 適応度計算：標準偏差のオフセット
 #define FITNESS_NEW_RULE_BONUS 20  // 適応度計算：新規ルールボーナス
