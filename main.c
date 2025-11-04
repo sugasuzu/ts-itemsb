@@ -80,15 +80,15 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002       // 最大ルール数（メモリ制限）
-#define Minsup 0.001        // 最小サポート値（1%以上の頻度が必要)
-#define Maxsigx 2.0         // 最大X標準偏差（2.0%以下のルールのみ採用）
+#define Minsup 0.0001       // 最小サポート値（0.01%以上の頻度が必要)
+#define Maxsigx 1.5         // 最大X標準偏差（1以下のルールのみ採用）
 #define MIN_ATTRIBUTES 2    // ルールの最小属性数（2個以上の属性が必要）
-#define MIN_SUPPORT_COUNT 2 // 最小サポートカウント（2回以上のマッチが必要、統計的信頼性のため）
+#define MIN_SUPPORT_COUNT 3 // 最小サポートカウント（2回以上のマッチが必要、統計的信頼性のため）
 
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
 #define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 10      // 試行回数（10回の独立した実験を実行）
+#define Ntry 10     // 試行回数（10回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */

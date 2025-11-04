@@ -51,6 +51,9 @@ desktop.ini
 /nikkei225_data
 /forex_data
 /crypto_data
+analysis/crypt/output/
+crypto_data_binance/
+crypto_data_hourly/
 
 analysis/fx/visualizations/
 analysis/fx/visualizations_xt/
