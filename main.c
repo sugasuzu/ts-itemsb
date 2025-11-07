@@ -51,11 +51,11 @@
 
 /* ファイル名
    入力データと出力ファイルのパスを定義 */
-#define DATANAME "crypto_data_hourly/BTC.txt" // 入力データファイル（デフォルト:BTC、時間足データ）
-#define POOL_FILE_A "output/pool/zrp01a.txt"  // ルールプール出力A（詳細版）
-#define POOL_FILE_B "output/pool/zrp01b.txt"  // ルールプール出力B（要約版）
-#define CONT_FILE "output/doc/zrd01.txt"      // 統計情報ファイル
-#define RESULT_FILE "output/doc/zrmemo01.txt" // メモファイル（未使用）
+#define DATANAME "1-deta-enginnering/crypto_data_hourly/BTC.txt" // 入力データファイル（デフォルト:BTC、時間足データ）
+#define POOL_FILE_A "output/pool/zrp01a.txt"                     // ルールプール出力A（詳細版）
+#define POOL_FILE_B "output/pool/zrp01b.txt"                     // ルールプール出力B（要約版）
+#define CONT_FILE "output/doc/zrd01.txt"                         // 統計情報ファイル
+#define RESULT_FILE "output/doc/zrmemo01.txt"                    // メモファイル（未使用）
 
 /* 動的ファイルパス（コマンドライン引数で変更可能） */
 char stock_code[20] = "BTC";                                 // 銘柄/ペアコード
@@ -3410,11 +3410,11 @@ void setup_paths_for_stock(const char *code)
 
     // データファイルパスを設定（時間足データ）
     snprintf(data_file_path, sizeof(data_file_path),
-             "crypto_data_hourly/%s.txt", stock_code);
+             "1-deta-enginnering/crypto_data_hourly/%s.txt", stock_code);
 
-    // 出力ベースディレクトリを設定（時間足データは crypto_data_hourly/output/ 配下）
+    // 出力ベースディレクトリを設定（時間足データは 1-deta-enginnering/crypto_data_hourly/output/ 配下）
     snprintf(output_base_dir, sizeof(output_base_dir),
-             "crypto_data_hourly/output/%s", stock_code);
+             "1-deta-enginnering/crypto_data_hourly/output/%s", stock_code);
 
     // 各サブディレクトリのパスを設定
     snprintf(output_dir_il, sizeof(output_dir_il),
