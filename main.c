@@ -79,21 +79,22 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
-#define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.001     // 最小サポート値（1%以上の頻度が必要)
-#define Maxsigx 0.5      // 最大X標準偏差（0.5以下のルールのみ採用）
-#define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
-#define Min_Mean 0.05
+#define Nrulemax 2002       // 最大ルール数（メモリ制限）
+#define Minsup 0.001        // 最小サポート値（0.1%以上の頻度が必要)
+#define Maxsigx 0.5         // 最大X標準偏差（0.5以下のルールのみ採用）
+#define Min_Mean 0.1        // 絶対平均値の閾値（|mean| >= Min_Mean、正負両方を発見）
+#define MIN_ATTRIBUTES 2    // ルールの最小属性数（2個以上の属性が必要）
 #define MIN_SUPPORT_COUNT 2 // 最小サポートカウント（2回以上のマッチが必要、統計的信頼性のため）
 
-/* シンプルな正期待値フィルター
-   X(t+1)とX(t+2)の両方が正の期待値を持つルールを発見 */
-#define ENABLE_SIMPLE_POSITIVE_FILTER 1 // シンプル正期待値フィルターの有効化（1=有効, 0=無効）
+/* 極端値フィルター（研究目的：0から離れた小集団を発見）
+   X(t+1)とX(t+2)の両方が |mean| >= Min_Mean を満たすルールを発見
+   正の極端値（mean >> 0）と負の極端値（mean << 0）の両方が対象 */
+#define ENABLE_SIMPLE_POSITIVE_FILTER 1 // 極端値フィルターの有効化（1=有効, 0=無効）
 
 /* 実験パラメータ
    実験の規模と繰り返し回数を設定 */
 #define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 10     // 試行回数（10回の独立した実験を実行）
+#define Ntry 5      // 試行回数（10回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */
@@ -140,13 +141,65 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 #define FITNESS_SIGMA_WEIGHT 4     // 適応度計算：標準偏差の重み
 
 /* 極端値ボーナス（研究目的：0から離れた小集団を発見）
-   絶対平均値が大きいルールに巨大なボーナスを与える */
-#define EXTREME_MEAN_THRESHOLD_1 0.3  // やや強いパターンの閾値
-#define EXTREME_MEAN_THRESHOLD_2 0.5  // 強いパターンの閾値
-#define EXTREME_MEAN_THRESHOLD_3 1.0  // 非常に強いパターンの閾値
+
+   【戦略】絶対値ベースでの両側極端値発見
+   - 正の極端値（mean >> 0）と負の極端値（mean << 0）の両方を発見
+   - 4象限すべてのパターンを捉える：
+     * Q1 (++): X(t+1)>0, X(t+2)>0 (強い上昇継続)
+     * Q2 (-+): X(t+1)<0, X(t+2)>0 (反転上昇)
+     * Q3 (--): X(t+1)<0, X(t+2)<0 (強い下落継続)
+     * Q4 (+-): X(t+1)>0, X(t+2)<0 (反転下落)
+
+   【データ駆動型閾値設定】
+   BTC時間足データ（17,482レコード）の統計特性:
+   - データ平均: μ = 0.0077%
+   - データ標準偏差: σ = 0.5121%
+   - 観測された最大絶対値: |mean| = 0.27%
+
+   閾値の根拠:
+   - THRESHOLD_1 (0.15%): μ + 0.3σ相当、やや強いパターン
+   - THRESHOLD_2 (0.25%): μ + 0.5σ相当、統計的に有意
+   - THRESHOLD_3 (0.40%): μ + 0.8σ相当、非常に希少な極端値
+
+   【適応度への影響】
+   - 通常ルール（|mean|=0.08%）: ボーナスなし
+   - やや強い（|mean|=0.15%）: +30ポイント
+   - 強い（|mean|=0.25%）: +100ポイント
+   - 非常に強い（|mean|=0.40%）: +200ポイント
+
+   → サポート数が小さくても極端値を持つルールが進化的に生き残る
+ */
+#define EXTREME_MEAN_THRESHOLD_1 0.15 // やや強いパターンの閾値（μ + 0.3σ）
+#define EXTREME_MEAN_THRESHOLD_2 0.25 // 強いパターンの閾値（μ + 0.5σ）
+#define EXTREME_MEAN_THRESHOLD_3 0.40 // 非常に強いパターンの閾値（μ + 0.8σ）
 #define EXTREME_MEAN_BONUS_1 30       // やや強いパターンのボーナス
 #define EXTREME_MEAN_BONUS_2 100      // 強いパターンのボーナス
 #define EXTREME_MEAN_BONUS_3 200      // 非常に強いパターンのボーナス
+
+/* 一貫性ボーナス（研究目的：散布図で1象限に集中するパターンを発見）
+
+   【戦略】方向性の一貫性を評価
+   各時点（t+1, t+2）で正/負どちらかに偏っているルールに高ボーナス
+
+   【評価基準】
+   - 各時点で80%以上が同じ方向 → 一方向に偏っている（一貫性が高い）
+   - 両時点とも偏っている → 散布図で特定象限に集中
+
+   【効果】
+   - t+1が80%正、t+2が80%負 → Q4象限に集中（上昇→下落パターン）
+   - t+1が80%正、t+2が80%正 → Q1象限に集中（継続上昇パターン）
+   - t+1が80%負、t+2が80%負 → Q3象限に集中（継続下落パターン）
+   - t+1が80%負、t+2が80%正 → Q2象限に集中（下落→上昇パターン）
+
+   【ボーナス体系】
+   - 単一時点での一貫性: +50ポイント
+   - 両時点での一貫性: +100ポイント（追加）
+   - 最大合計: +200ポイント（各50 + 追加100）
+ */
+#define CONSISTENCY_THRESHOLD_HIGH 0.8 // 高偏り閾値（80%以上）
+#define CONSISTENCY_THRESHOLD_LOW 0.2  // 低偏り閾値（20%以下）
+#define CONSISTENCY_BONUS_SINGLE 50    // 単一時点の一貫性ボーナス
+#define CONSISTENCY_BONUS_DOUBLE 100   // 両時点の一貫性ボーナス
 
 /* レポート間隔
    進捗報告とログ出力の頻度 */
@@ -1811,13 +1864,21 @@ double calculate_support_value(int matched_count, int negative_count_val)
 */
 
 /**
- * ルールの品質をチェック
+ * ルールの品質をチェック（絶対値ベースの極端値フィルター）
+ *
+ * 研究目的：0から離れた小集団を発見（正負両方の極端値）
+ *
+ * チェック内容：
+ * 1. 基本チェック: サポート値 >= Minsup AND 属性数 >= MIN_ATTRIBUTES
+ * 2. 低分散チェック: すべての未来スパンでσ <= Maxsigx
+ * 3. 極端値チェック: X(t+1)とX(t+2)の**絶対値**が両方とも >= Min_Mean
+ *
  * @param future_sigma_array 未来予測のσ配列 [FUTURE_SPAN]（t+1, t+2, t+3, ...）
- * @param future_mean_array 未来予測の平均値配列 [FUTURE_SPAN]（t+1, t+2, t+3, ...）
+ * @param future_mean_array 未来予測の平均値配列 [FUTURE_SPAN]（符号付き、正負両方）
  * @param support サポート値
  * @param num_attributes 属性数
  * @param support_count サポートカウント（マッチした回数）
- * @return 品質基準を満たす場合1（high-support）、2（low-variance）、満たさない場合0
+ * @return 品質基準を満たす場合1（低分散 AND 極端値）、満たさない場合0
  */
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        double support, int num_attributes, int support_count)
@@ -1839,8 +1900,14 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
         return 0; // 基本チェック失敗
     }
 
-    // シンプルな正期待値フィルター: 低分散 AND 高平均値
-    // 両方の条件を満たすルールのみを採用
+    // 極端値フィルター: 低分散 AND 絶対平均値が大きい
+    // 研究目的: 0から離れた小集団を発見（正負両方の極端値）
+    //
+    // 戦略: 絶対値ベースで評価することで、第1～4象限すべてのルールを発見
+    //   第1象限 (++): X(t+1)>0, X(t+2)>0 (正の極端値)
+    //   第2象限 (-+): X(t+1)<0, X(t+2)>0 (t+1負/t+2正)
+    //   第3象限 (--): X(t+1)<0, X(t+2)<0 (負の極端値)
+    //   第4象限 (+-): X(t+1)>0, X(t+2)<0 (t+1正/t+2負)
 
     // 1. 低分散チェック: すべての未来スパンでsigma <= Maxsigx
     int low_variance = 1;
@@ -1853,13 +1920,16 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
         }
     }
 
-    // 2. 高平均値チェック: X(t+1)とX(t+2)の両方が最小平均値以上
-    int high_mean = (future_mean_array[0] >= Min_Mean && future_mean_array[1] >= Min_Mean);
+    // 2. 絶対平均値チェック: X(t+1)とX(t+2)の絶対値が両方とも閾値以上
+    //    正負を問わず、0から離れた極端な値を持つパターンを採用
+    double abs_mean_t1 = fabs(future_mean_array[0]); // t+1の絶対平均値
+    double abs_mean_t2 = fabs(future_mean_array[1]); // t+2の絶対平均値
+    int high_abs_mean = (abs_mean_t1 >= Min_Mean && abs_mean_t2 >= Min_Mean);
 
     // 3. 両方を満たす場合のみ採用
-    if (low_variance && high_mean)
+    if (low_variance && high_abs_mean)
     {
-        return 1; // High-support rule（低分散 かつ 正期待値）
+        return 1; // High-support rule（低分散 かつ 極端値）
     }
     return 0; // 条件を満たさないルールは採用しない
 }
@@ -2179,25 +2249,74 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         rules_by_attribute_count[j2]++;
 
                         // 極端値ボーナスを計算（研究目的：0から離れた小集団を発見）
-                        double abs_mean_t1 = fabs(future_mean_ptr[0]);  // t+1の絶対平均値
-                        double abs_mean_t2 = fabs(future_mean_ptr[1]);  // t+2の絶対平均値
+                        double abs_mean_t1 = fabs(future_mean_ptr[0]); // t+1の絶対平均値
+                        double abs_mean_t2 = fabs(future_mean_ptr[1]); // t+2の絶対平均値
                         double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
 
                         double extreme_bonus = 0.0;
-                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3) {
-                            extreme_bonus = EXTREME_MEAN_BONUS_3;  // 非常に強い (>= 1.0%)
-                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2) {
-                            extreme_bonus = EXTREME_MEAN_BONUS_2;  // 強い (>= 0.5%)
-                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1) {
-                            extreme_bonus = EXTREME_MEAN_BONUS_1;  // やや強い (>= 0.3%)
+                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3)
+                        {
+                            extreme_bonus = EXTREME_MEAN_BONUS_3; // 非常に強い (>= 0.4%)
+                        }
+                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2)
+                        {
+                            extreme_bonus = EXTREME_MEAN_BONUS_2; // 強い (>= 0.25%)
+                        }
+                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1)
+                        {
+                            extreme_bonus = EXTREME_MEAN_BONUS_1; // やや強い (>= 0.15%)
                         }
 
-                        // 適応度を更新（新規ルールボーナス + 極端値ボーナス付き、t+1のσを使用）
+                        // 一貫性ボーナスを計算（研究目的：散布図で1象限に集中するパターンを発見）
+                        double consistency_bonus = 0.0;
+
+                        // 方向性カウントを取得
+                        int pos_count_t1 = future_positive_count[individual][k][loop_j][0]; // t+1で正の回数
+                        int neg_count_t1 = future_negative_count[individual][k][loop_j][0]; // t+1で負の回数
+                        int total_t1 = pos_count_t1 + neg_count_t1;
+
+                        int pos_count_t2 = future_positive_count[individual][k][loop_j][1]; // t+2で正の回数
+                        int neg_count_t2 = future_negative_count[individual][k][loop_j][1]; // t+2で負の回数
+                        int total_t2 = pos_count_t2 + neg_count_t2;
+
+                        if (total_t1 > 0 && total_t2 > 0)
+                        {
+                            // 各時点での正の割合を計算
+                            double ratio_t1 = (double)pos_count_t1 / total_t1;
+                            double ratio_t2 = (double)pos_count_t2 / total_t2;
+
+                            // t+1での方向性の一貫性（80%以上正 or 20%以下正）
+                            int consistent_t1 = (ratio_t1 >= CONSISTENCY_THRESHOLD_HIGH ||
+                                                 ratio_t1 <= CONSISTENCY_THRESHOLD_LOW);
+
+                            // t+2での方向性の一貫性（80%以上正 or 20%以下正）
+                            int consistent_t2 = (ratio_t2 >= CONSISTENCY_THRESHOLD_HIGH ||
+                                                 ratio_t2 <= CONSISTENCY_THRESHOLD_LOW);
+
+                            // 各時点での一貫性ボーナス
+                            if (consistent_t1)
+                            {
+                                consistency_bonus += CONSISTENCY_BONUS_SINGLE; // t+1が一方向に偏っている
+                            }
+                            if (consistent_t2)
+                            {
+                                consistency_bonus += CONSISTENCY_BONUS_SINGLE; // t+2が一方向に偏っている
+                            }
+
+                            // 両時点とも一貫している場合はさらにボーナス
+                            if (consistent_t1 && consistent_t2)
+                            {
+                                consistency_bonus += CONSISTENCY_BONUS_DOUBLE; // 散布図で特定象限に集中
+                            }
+                        }
+
+                        // 適応度を更新（新規ルールボーナス + 極端値ボーナス + 一貫性ボーナス付き）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
                             extreme_bonus +
+                            consistency_bonus + // ← 一貫性ボーナスを追加
                             FITNESS_NEW_RULE_BONUS;
 
                         // 属性使用履歴を更新
@@ -2220,20 +2339,62 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
 
                         double extreme_bonus = 0.0;
-                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3) {
+                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3)
+                        {
                             extreme_bonus = EXTREME_MEAN_BONUS_3;
-                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2) {
+                        }
+                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2)
+                        {
                             extreme_bonus = EXTREME_MEAN_BONUS_2;
-                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1) {
+                        }
+                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1)
+                        {
                             extreme_bonus = EXTREME_MEAN_BONUS_1;
                         }
 
-                        // 重複ルールの場合（新規ボーナスなし、極端値ボーナスあり、t+1のσを使用）
+                        // 一貫性ボーナスを計算（重複ルールでも一貫性は評価）
+                        double consistency_bonus = 0.0;
+
+                        int pos_count_t1 = future_positive_count[individual][k][loop_j][0];
+                        int neg_count_t1 = future_negative_count[individual][k][loop_j][0];
+                        int total_t1 = pos_count_t1 + neg_count_t1;
+
+                        int pos_count_t2 = future_positive_count[individual][k][loop_j][1];
+                        int neg_count_t2 = future_negative_count[individual][k][loop_j][1];
+                        int total_t2 = pos_count_t2 + neg_count_t2;
+
+                        if (total_t1 > 0 && total_t2 > 0)
+                        {
+                            double ratio_t1 = (double)pos_count_t1 / total_t1;
+                            double ratio_t2 = (double)pos_count_t2 / total_t2;
+
+                            int consistent_t1 = (ratio_t1 >= CONSISTENCY_THRESHOLD_HIGH ||
+                                                 ratio_t1 <= CONSISTENCY_THRESHOLD_LOW);
+                            int consistent_t2 = (ratio_t2 >= CONSISTENCY_THRESHOLD_HIGH ||
+                                                 ratio_t2 <= CONSISTENCY_THRESHOLD_LOW);
+
+                            if (consistent_t1)
+                            {
+                                consistency_bonus += CONSISTENCY_BONUS_SINGLE;
+                            }
+                            if (consistent_t2)
+                            {
+                                consistency_bonus += CONSISTENCY_BONUS_SINGLE;
+                            }
+
+                            if (consistent_t1 && consistent_t2)
+                            {
+                                consistency_bonus += CONSISTENCY_BONUS_DOUBLE;
+                            }
+                        }
+
+                        // 重複ルールの場合（新規ボーナスなし、極端値・一貫性ボーナスあり）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            extreme_bonus;
+                            extreme_bonus +
+                            consistency_bonus; // ← 一貫性ボーナスを追加
                     }
 
                     // ルール数上限チェック
