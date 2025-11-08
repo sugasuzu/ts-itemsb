@@ -80,7 +80,7 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
 #define Nrulemax 2002    // 最大ルール数（メモリ制限）
-#define Minsup 0.001     // 最小サポート値（0.01以上の頻度が必要)
+#define Minsup 0.001     // 最小サポート値（1%以上の頻度が必要)
 #define Maxsigx 0.5      // 最大X標準偏差（0.5以下のルールのみ採用）
 #define MIN_ATTRIBUTES 2 // ルールの最小属性数（2個以上の属性が必要）
 #define Min_Mean 0.05
@@ -133,11 +133,20 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
    ルールの品質評価に使用する閾値とボーナス */
 #define HIGH_SUPPORT_BONUS 0.02    // 高サポートルールのボーナス閾値
 #define LOW_VARIANCE_REDUCTION 1.0 // 低分散ルールの削減値
-#define FITNESS_SUPPORT_WEIGHT 10  // 適応度計算：サポート値の重み
+#define FITNESS_SUPPORT_WEIGHT 5   // 適応度計算：サポート値の重み (10→5に削減)
 #define FITNESS_SIGMA_OFFSET 0.1   // 適応度計算：標準偏差のオフセット
 #define FITNESS_NEW_RULE_BONUS 20  // 適応度計算：新規ルールボーナス
 #define FITNESS_ATTRIBUTE_WEIGHT 1 // 適応度計算：属性数の重み
 #define FITNESS_SIGMA_WEIGHT 4     // 適応度計算：標準偏差の重み
+
+/* 極端値ボーナス（研究目的：0から離れた小集団を発見）
+   絶対平均値が大きいルールに巨大なボーナスを与える */
+#define EXTREME_MEAN_THRESHOLD_1 0.3  // やや強いパターンの閾値
+#define EXTREME_MEAN_THRESHOLD_2 0.5  // 強いパターンの閾値
+#define EXTREME_MEAN_THRESHOLD_3 1.0  // 非常に強いパターンの閾値
+#define EXTREME_MEAN_BONUS_1 30       // やや強いパターンのボーナス
+#define EXTREME_MEAN_BONUS_2 100      // 強いパターンのボーナス
+#define EXTREME_MEAN_BONUS_3 200      // 非常に強いパターンのボーナス
 
 /* レポート間隔
    進捗報告とログ出力の頻度 */
@@ -2169,11 +2178,26 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
 
-                        // 適応度を更新（新規ルールボーナス付き、t+1のσを使用）
+                        // 極端値ボーナスを計算（研究目的：0から離れた小集団を発見）
+                        double abs_mean_t1 = fabs(future_mean_ptr[0]);  // t+1の絶対平均値
+                        double abs_mean_t2 = fabs(future_mean_ptr[1]);  // t+2の絶対平均値
+                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
+
+                        double extreme_bonus = 0.0;
+                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3) {
+                            extreme_bonus = EXTREME_MEAN_BONUS_3;  // 非常に強い (>= 1.0%)
+                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2) {
+                            extreme_bonus = EXTREME_MEAN_BONUS_2;  // 強い (>= 0.5%)
+                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1) {
+                            extreme_bonus = EXTREME_MEAN_BONUS_1;  // やや強い (>= 0.3%)
+                        }
+
+                        // 適応度を更新（新規ルールボーナス + 極端値ボーナス付き、t+1のσを使用）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
+                            extreme_bonus +
                             FITNESS_NEW_RULE_BONUS;
 
                         // 属性使用履歴を更新
@@ -2190,11 +2214,26 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     }
                     else
                     {
-                        // 重複ルールの場合（新規ボーナスなし、t+1のσを使用）
+                        // 極端値ボーナスを計算（重複ルールでも極端値は評価）
+                        double abs_mean_t1 = fabs(future_mean_ptr[0]);
+                        double abs_mean_t2 = fabs(future_mean_ptr[1]);
+                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
+
+                        double extreme_bonus = 0.0;
+                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3) {
+                            extreme_bonus = EXTREME_MEAN_BONUS_3;
+                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2) {
+                            extreme_bonus = EXTREME_MEAN_BONUS_2;
+                        } else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1) {
+                            extreme_bonus = EXTREME_MEAN_BONUS_1;
+                        }
+
+                        // 重複ルールの場合（新規ボーナスなし、極端値ボーナスあり、t+1のσを使用）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET);
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
+                            extreme_bonus;
                     }
 
                     // ルール数上限チェック
