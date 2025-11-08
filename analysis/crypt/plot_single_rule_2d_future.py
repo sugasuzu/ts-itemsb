@@ -124,10 +124,10 @@ def plot_2d_future_scatter(rule_info, verification_df, output_path, symbol, rule
     # 統計値
     sigma_t1 = rule_info['X(t+1)_sigma']
     sigma_t2 = rule_info['X(t+2)_sigma']
-    win_rate_t1 = rule_info['X(t+1)_win_rate']
-    win_rate_t2 = rule_info['X(t+2)_win_rate']
-    pf_t1 = rule_info['X(t+1)_profit_factor']
-    pf_t2 = rule_info['X(t+2)_profit_factor']
+
+    # 検証データから勝率を計算
+    win_rate_t1 = (verification_df['X(t+1)'] > 0).sum() / len(verification_df)
+    win_rate_t2 = (verification_df['X(t+2)'] > 0).sum() / len(verification_df)
 
     # 軸ラベルとタイトル
     ax.set_xlabel('X(t+1) Change [%]', fontsize=13, fontweight='bold')
@@ -169,12 +169,10 @@ def plot_2d_future_scatter(rule_info, verification_df, output_path, symbol, rule
     rule_text += f'\n\nX(t+1) Statistics:'
     rule_text += f'\n  Mean: {mean_t1:.3f}% ± {sigma_t1:.3f}%'
     rule_text += f'\n  Win Rate: {win_rate_t1*100:.1f}%'
-    rule_text += f'\n  Profit Factor: {pf_t1:.2f}'
 
     rule_text += f'\n\nX(t+2) Statistics:'
     rule_text += f'\n  Mean: {mean_t2:.3f}% ± {sigma_t2:.3f}%'
     rule_text += f'\n  Win Rate: {win_rate_t2*100:.1f}%'
-    rule_text += f'\n  Profit Factor: {pf_t2:.2f}'
 
     rule_text += f'\n\nQuadrant Distribution:'
     rule_text += f'\n  Q1 (++): {len(q1_df)} ({len(q1_df)/len(verification_df)*100:.1f}%)'
