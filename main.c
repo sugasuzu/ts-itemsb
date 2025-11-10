@@ -79,23 +79,37 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
-#define Nrulemax 2002          // 最大ルール数（メモリ制限）
-#define Minsup 0.0005          // 最小サポート値（緩和: 0.001→0.0005、多様性確保）
-#define Maxsigx 0.5            // 最大X標準偏差（緩和: 0.4→0.5、適度な分散許容）
-#define Min_Mean 0.05          // 絶対平均値の閾値（未使用 - check_rule_qualityで削除済み）
+#define Minsup 0.001           // 最小サポート率: 10件/17482件相当（統計的信頼性確保）
+#define Maxsigx 0.5            // 最大X標準偏差（適度な分散許容）
 #define MIN_ATTRIBUTES 2       // ルールの最小属性数（緩和: 3→2、シンプルなパターンも許容）
-#define MIN_SUPPORT_COUNT 30   // 最小サポートカウント（緩和: 50→30、多様性確保）
+#define Minmean 0.1            // 絶対値閾値: |mean| >= 0.1% (約1σ)
 #define MIN_CONCENTRATION 0.40 // 最小集中度（新規: 40%以上のルールのみ登録）
 
-/* 極端値フィルター（研究目的：0から離れた小集団を発見）
-   X(t+1)とX(t+2)の両方が |mean| >= Min_Mean を満たすルールを発見
-   正の極端値（mean >> 0）と負の極端値（mean << 0）の両方が対象 */
-#define ENABLE_SIMPLE_POSITIVE_FILTER 1 // 極端値フィルターの有効化（1=有効, 0=無効）
+/* Mean閾値フィルタ（統計的異常パターン発見）
+CLAUDE.md Option 1: Bidirectional Extremes (推奨設定)
+
+研究目標: 条件付き平均が0から遠く離れた希少パターンを発見
+
+データ特性（BTC時間足）:
+- 無条件分布: μ = 0.0077%, σ = 0.5121%
+- 1σ閾値: μ ± 0.52% ≈ ±0.5%
+- 2σ閾値: μ ± 1.03% ≈ ±1.0%
+
+戦略:
+- 絶対値閾値: |mean| >= Minmean (正負両方向の異常を捕捉)
+- 複数時点チェック: すべての未来時点（t+1, t+2, ...）が閾値を満たす必要
+
+期待される結果:
+- 発見ルール数: ~50-200個（正負合計）
+- 統計的有意性: >1σ from data mean
+- 研究価値: 市場構造の regime change を検出
+*/
 
 /* 実験パラメータ
-   実験の規模と繰り返し回数を設定 */
-#define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 10     // 試行回数（10回の独立した実験を実行）
+実験の規模と繰り返し回数を設定 */
+#define Nrulemax 2002 // 最大ルール数（メモリ制限）
+#define Nstart 1000   // 試行開始番号（ファイル名に使用）
+#define Ntry 10       // 試行回数（10回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */
@@ -2064,81 +2078,77 @@ double calculate_concentration_ratio(int *quadrant_counts)
 }
 
 /**
- * ルールの品質をチェック（3段階フィルタ）
- *
- * 新戦略: 集中度フィルタを追加（MIN_CONCENTRATION = 30%）
+ * ルールの品質をチェック（4段階フィルタリング）
  *
  * チェック内容：
- * 1. 基本チェック: サポート値 >= Minsup AND 属性数 >= MIN_ATTRIBUTES
- * 2. 低分散チェック: すべての未来スパンでσ <= Maxsigx
- * 3. 集中度チェック: 象限集中度 >= MIN_CONCENTRATION (30%)
+ * 1. 基本チェック: サポート率 >= Minsup AND 属性数 >= MIN_ATTRIBUTES
+ * 2. 低分散チェック: すべての未来時点で σ <= Maxsigx
+ * 3. 集中度チェック: 象限集中度 >= MIN_CONCENTRATION (40%)
+ * 4. Mean閾値チェック: すべての未来時点で |mean| >= Minmean
  *
- * @param future_sigma_array 未来予測のσ配列 [FUTURE_SPAN]（t+1, t+2, t+3, ...）
- * @param future_mean_array 未来予測の平均値配列 [FUTURE_SPAN]（未使用）
- * @param support サポート値
- * @param num_attributes 属性数
- * @param support_count サポートカウント（マッチした回数）
- * @param quadrant_counts 4象限のカウント配列 [Q1, Q2, Q3, Q4]
- * @return 品質基準を満たす場合1、満たさない場合0
+ * @param future_sigma_array 未来予測のσ配列 [FUTURE_SPAN]（t+1, t+2, ...）
+ * @param future_mean_array  未来予測の平均値配列 [FUTURE_SPAN]（t+1, t+2, ...）
+ * @param support            サポート率（matched_count / negative_count）
+ * @param num_attributes     属性数
+ * @param quadrant_counts    4象限のカウント配列 [Q1, Q2, Q3, Q4]
+ * @return 1:品質基準を満たす, 0:満たさない
  */
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
-                       double support, int num_attributes, int support_count,
+                       double support, int num_attributes,
                        int *quadrant_counts)
 {
-    int i;
-
-    // 最小サンプル数チェック（統計的信頼性を確保）
-    if (support_count < MIN_SUPPORT_COUNT)
+    // ========================================
+    // Stage 1: 基本品質チェック
+    // ========================================
+    if (support < Minsup || num_attributes < MIN_ATTRIBUTES)
     {
-        return 0; // サンプル数不足
+        return 0; // 最低基準を満たさない
     }
 
-    // 基本的な品質チェック
-    int basic_check = (support >= Minsup &&               // サポート値が閾値以上
-                       num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
-
-    if (!basic_check)
-    {
-        return 0; // 基本チェック失敗
-    }
-
-    // 3段階フィルター: 分散 + 集中度
-    // 新戦略: 集中度30%以上のルールのみ登録
-    //
-    // 理由:
-    //   - ランダム生成ルールは25%前後の集中度（4象限均等分布）
-    //   - 30%フィルタで「良い方向」の選択圧を形成
-    //   - 適応度ボーナス（30%-60%の7段階）で進化を加速
-    //
-    // フィルタ基準:
-    //   1. サポート数 >= MIN_SUPPORT_COUNT (統計的信頼性)
-    //   2. 分散 <= Maxsigx (予測安定性)
-    //   3. 集中度 >= MIN_CONCENTRATION (30%以上の象限偏り)
-
-    // 1. 低分散チェック: すべての未来スパンでsigma <= Maxsigx
-    int low_variance = 1;
-    for (i = 0; i < FUTURE_SPAN; i++)
+    // ========================================
+    // Stage 2: 予測安定性チェック（低分散）
+    // ========================================
+    // すべての未来時点（t+1, t+2, ...）で分散が閾値以下であること
+    for (int i = 0; i < FUTURE_SPAN; i++)
     {
         if (future_sigma_array[i] > Maxsigx)
         {
-            low_variance = 0;
-            break;
+            return 0; // 予測が不安定（高分散）
         }
     }
 
-    if (!low_variance)
-    {
-        return 0; // 高分散ルールは除外
-    }
-
-    // 2. 集中度チェック: 象限集中度 >= MIN_CONCENTRATION
+    // ========================================
+    // Stage 3: パターン偏りチェック（集中度）
+    // ========================================
+    // 象限集中度 >= MIN_CONCENTRATION (40%)
+    // ランダムパターン（25%前後）を排除
     double concentration = calculate_concentration_ratio(quadrant_counts);
     if (concentration < MIN_CONCENTRATION)
     {
-        return 0; // 集中度30%未満は除外（ランダムパターンを排除）
+        return 0; // 象限分布が均等（方向性が不明確）
     }
 
-    // 全てのチェックをパス
+    // ========================================
+    // Stage 4: 統計的異常チェック（Mean閾値）
+    // ========================================
+    // 目的: 条件付き平均が0から遠く離れた希少パターンを発見
+    // 条件: すべての未来時点（t+1, t+2, ...）で |mean| >= Minmean
+    // 理由: 無条件分布 μ=0.0077% から |mean|>=0.5% は約1σ以上の偏差
+
+    for (int i = 0; i < FUTURE_SPAN; i++)
+    {
+        double abs_mean = fabs(future_mean_array[i]); // 絶対値を計算
+
+        if (abs_mean < Minmean)
+        {
+            return 0; // 1つでも閾値未満なら失格
+        }
+    }
+    // すべての時点で |mean| >= Minmean を満たした
+
+    // ========================================
+    // すべてのフィルタをパス
+    // ========================================
     return 1;
 }
 
@@ -2438,8 +2448,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // ルールの品質チェック（サポートカウント、標準偏差、属性数、集中度をチェック）
-            if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2, matched_count,
+            // ルールの品質チェック（サポート率、標準偏差、属性数、集中度、Mean閾値をチェック）
+            if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
                                    quadrant_count[individual][k][loop_j]))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
