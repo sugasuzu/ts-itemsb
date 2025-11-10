@@ -32,7 +32,7 @@
 
 /* 時系列パラメータ */
 #define TIMESERIES_MODE 1 // 時系列モードの有効化（1:有効、0:無効）
-#define MAX_TIME_DELAY 1  // 最大時間遅延（t-1まで参照可能、t-0とt-1のみ使用でマッチ数増加）
+#define MAX_TIME_DELAY 4  // 最大時間遅延（t-4まで参照可能、選択肢A: 条件の多様性確保）
 #define MIN_TIME_DELAY 0  // 最小時間遅延（現在時点 t-0）
 #define PREDICTION_SPAN 1 // 予測スパン（未使用、互換性のため残存）
 #define FUTURE_SPAN 2     // 未来予測範囲（検証CSVに出力: t+1, t+2, ..., t+FUTURE_SPAN）
@@ -79,22 +79,37 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
 
 /* ルールマイニング制約
    抽出するルールの品質を制御する閾値 */
-#define Nrulemax 2002       // 最大ルール数（メモリ制限）
-#define Minsup 0.0001       // 最小サポート値（0.1%以上の頻度が必要)
-#define Maxsigx 0.1         // 最大X標準偏差（0.5以下のルールのみ採用）
-#define Min_Mean 0.05       // 絶対平均値の閾値（|mean| >= Min_Mean、正負両方を発見）
-#define MIN_ATTRIBUTES 2    // ルールの最小属性数（2個以上の属性が必要）
-#define MIN_SUPPORT_COUNT 2 // 最小サポートカウント（2回以上のマッチが必要、統計的信頼性のため）
+#define Minsup 0.001           // 最小サポート率: 10件/17482件相当（統計的信頼性確保）
+#define Maxsigx 0.5            // 最大X標準偏差（適度な分散許容）
+#define MIN_ATTRIBUTES 2       // ルールの最小属性数（緩和: 3→2、シンプルなパターンも許容）
+#define Minmean 0.1            // 絶対値閾値: |mean| >= 0.1% (約1σ)
+#define MIN_CONCENTRATION 0.40 // 最小集中度（新規: 40%以上のルールのみ登録）
 
-/* 極端値フィルター（研究目的：0から離れた小集団を発見）
-   X(t+1)とX(t+2)の両方が |mean| >= Min_Mean を満たすルールを発見
-   正の極端値（mean >> 0）と負の極端値（mean << 0）の両方が対象 */
-#define ENABLE_SIMPLE_POSITIVE_FILTER 1 // 極端値フィルターの有効化（1=有効, 0=無効）
+/* Mean閾値フィルタ（統計的異常パターン発見）
+CLAUDE.md Option 1: Bidirectional Extremes (推奨設定)
+
+研究目標: 条件付き平均が0から遠く離れた希少パターンを発見
+
+データ特性（BTC時間足）:
+- 無条件分布: μ = 0.0077%, σ = 0.5121%
+- 1σ閾値: μ ± 0.52% ≈ ±0.5%
+- 2σ閾値: μ ± 1.03% ≈ ±1.0%
+
+戦略:
+- 絶対値閾値: |mean| >= Minmean (正負両方向の異常を捕捉)
+- 複数時点チェック: すべての未来時点（t+1, t+2, ...）が閾値を満たす必要
+
+期待される結果:
+- 発見ルール数: ~50-200個（正負合計）
+- 統計的有意性: >1σ from data mean
+- 研究価値: 市場構造の regime change を検出
+*/
 
 /* 実験パラメータ
-   実験の規模と繰り返し回数を設定 */
-#define Nstart 1000 // 試行開始番号（ファイル名に使用）
-#define Ntry 5      // 試行回数（10回の独立した実験を実行）
+実験の規模と繰り返し回数を設定 */
+#define Nrulemax 2002 // 最大ルール数（メモリ制限）
+#define Nstart 1000   // 試行開始番号（ファイル名に使用）
+#define Ntry 10       // 試行回数（10回の独立した実験を実行）
 
 /* GNPパラメータ
    Genetic Network Programmingの構造を定義 */
@@ -134,11 +149,11 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
    ルールの品質評価に使用する閾値とボーナス */
 #define HIGH_SUPPORT_BONUS 0.02    // 高サポートルールのボーナス閾値
 #define LOW_VARIANCE_REDUCTION 1.0 // 低分散ルールの削減値
-#define FITNESS_SUPPORT_WEIGHT 5   // 適応度計算：サポート値の重み (10→5に削減)
-#define FITNESS_SIGMA_OFFSET 0.10  // 適応度計算：標準偏差のオフセット (バランス調整)
+#define FITNESS_SUPPORT_WEIGHT 3   // 適応度計算：サポート値の重み (段階的削減: 5→3、ボーナスとのバランス)
+#define FITNESS_SIGMA_OFFSET 0.50  // 適応度計算：標準偏差のオフセット (集中度優先: σ重視を緩和)
 #define FITNESS_NEW_RULE_BONUS 20  // 適応度計算：新規ルールボーナス
 #define FITNESS_ATTRIBUTE_WEIGHT 1 // 適応度計算：属性数の重み
-#define FITNESS_SIGMA_WEIGHT 30    // 適応度計算：標準偏差の重み (4→30、低分散を優遇しつつバランス維持)
+#define FITNESS_SIGMA_WEIGHT 8     // 適応度計算：標準偏差の重み (バランス調整: 5→8)
 
 /* 極端値ボーナス（研究目的：0から離れた小集団を発見）
 
@@ -218,14 +233,48 @@ int Nzk = 0; // 属性数（カラム数 - X列 - T列）
    - 目標（70-90%集中）を直接評価・優先
    - 一貫性ボーナスの上位互換として機能
  */
-#define CONCENTRATION_THRESHOLD_EXCELLENT 0.90  // 超優秀閾値（90%以上）
-#define CONCENTRATION_THRESHOLD_GOOD 0.80       // 優秀閾値（80%以上）
-#define CONCENTRATION_THRESHOLD_FAIR 0.70       // 良好閾値（70%以上）
-#define CONCENTRATION_THRESHOLD_ACCEPTABLE 0.60 // 可閾値（60%以上）
-#define CONCENTRATION_BONUS_EXCELLENT 500       // 超優秀ボーナス
-#define CONCENTRATION_BONUS_GOOD 300            // 優秀ボーナス
-#define CONCENTRATION_BONUS_FAIR 150            // 良好ボーナス
-#define CONCENTRATION_BONUS_ACCEPTABLE 50       // 可ボーナス
+/* 象限集中度ボーナス（5段階の連続的報酬）
+   40%から60%まで刻み、より高い集中度に焦点 */
+#define CONCENTRATION_THRESHOLD_1 0.40 // 40%以上（フィルタ通過ライン）
+#define CONCENTRATION_THRESHOLD_2 0.45 // 45%以上
+#define CONCENTRATION_THRESHOLD_3 0.50 // 50%以上（目標ライン）
+#define CONCENTRATION_THRESHOLD_4 0.55 // 55%以上
+#define CONCENTRATION_THRESHOLD_5 0.60 // 60%以上（理想ライン）
+
+#define CONCENTRATION_BONUS_1 500   // 40%: ベースライン（×1）
+#define CONCENTRATION_BONUS_2 2000  // 45%: ×4
+#define CONCENTRATION_BONUS_3 8000  // 50%: ×16（目標達成）
+#define CONCENTRATION_BONUS_4 15000 // 55%: ×30
+#define CONCENTRATION_BONUS_5 25000 // 60%: ×50（最大報酬）
+
+/* 統計的有意性ボーナス（CLAUDE.md研究目標：市場異常の発見）
+
+   【目的】
+   データ平均（μ = 0.0077%）から大きく離れたパターンを優先的に発見
+
+   【データ統計】
+   - μ_data = 0.0077%（ほぼゼロ = ランダムウォーク）
+   - σ_data = 0.5121%
+
+   【統計的有意性の基準】
+   |mean_rule - μ_data| >= 1σ ≈ 0.5%
+
+   【ボーナス体系】
+   - |mean| >= 0.8%: +5000ポイント（μ + 1.5σ、非常に強い市場異常）
+   - |mean| >= 0.5%: +2000ポイント（μ + 1.0σ、統計的に有意）
+   - |mean| >= 0.3%: +500ポイント（μ + 0.6σ、やや有意）
+
+   【研究価値】
+   - 稀少だが強い統計的シグナルを持つパターンの発見
+   - 条件付き市場非効率性の証拠
+   - 正負両方向の異常を捉える（双方向評価）
+*/
+#define STATISTICAL_SIGNIFICANCE_THRESHOLD_1 0.3 // やや有意閾値（μ + 0.6σ）
+#define STATISTICAL_SIGNIFICANCE_THRESHOLD_2 0.5 // 有意閾値（μ + 1.0σ）
+#define STATISTICAL_SIGNIFICANCE_THRESHOLD_3 0.8 // 非常に有意閾値（μ + 1.5σ）
+#define STATISTICAL_SIGNIFICANCE_BONUS_1 2000    // やや有意ボーナス (厳格化: 500→2000、0.3%でも評価)
+#define STATISTICAL_SIGNIFICANCE_BONUS_2 10000   // 有意ボーナス (厳格化: 2000→10000、0.5%を最優先)
+#define STATISTICAL_SIGNIFICANCE_BONUS_3 20000   // 非常に有意ボーナス (厳格化: 5000→20000、0.8%を極めて優先)
 
 /* レポート間隔
    進捗報告とログ出力の頻度 */
@@ -1994,74 +2043,113 @@ double calculate_support_value(int matched_count, int negative_count_val)
 */
 
 /**
- * ルールの品質をチェック（絶対値ベースの極端値フィルター）
+ * 象限集中度を計算
  *
- * 研究目的：0から離れた小集団を発見（正負両方の極端値）
+ * 4象限 (Q1-Q4) のカウントから、最大象限の占有率を計算します。
+ *
+ * @param quadrant_counts 4象限のカウント配列 [Q1, Q2, Q3, Q4]
+ *                        Q1: X(t+1)>0, X(t+2)>0
+ *                        Q2: X(t+1)<=0, X(t+2)>0
+ *                        Q3: X(t+1)<=0, X(t+2)<=0
+ *                        Q4: X(t+1)>0, X(t+2)<=0
+ * @return 集中度（0.0 ~ 1.0）。最大象限のカウント / 全カウント
+ */
+double calculate_concentration_ratio(int *quadrant_counts)
+{
+    int q1 = quadrant_counts[0];
+    int q2 = quadrant_counts[1];
+    int q3 = quadrant_counts[2];
+    int q4 = quadrant_counts[3];
+    int total = q1 + q2 + q3 + q4;
+
+    if (total == 0)
+        return 0.0;
+
+    // 最大象限を見つける
+    int max_count = q1;
+    if (q2 > max_count)
+        max_count = q2;
+    if (q3 > max_count)
+        max_count = q3;
+    if (q4 > max_count)
+        max_count = q4;
+
+    return (double)max_count / total;
+}
+
+/**
+ * ルールの品質をチェック（4段階フィルタリング）
  *
  * チェック内容：
- * 1. 基本チェック: サポート値 >= Minsup AND 属性数 >= MIN_ATTRIBUTES
- * 2. 低分散チェック: すべての未来スパンでσ <= Maxsigx
- * 3. 極端値チェック: X(t+1)とX(t+2)の**絶対値**が両方とも >= Min_Mean
+ * 1. 基本チェック: サポート率 >= Minsup AND 属性数 >= MIN_ATTRIBUTES
+ * 2. 低分散チェック: すべての未来時点で σ <= Maxsigx
+ * 3. 集中度チェック: 象限集中度 >= MIN_CONCENTRATION (40%)
+ * 4. Mean閾値チェック: すべての未来時点で |mean| >= Minmean
  *
- * @param future_sigma_array 未来予測のσ配列 [FUTURE_SPAN]（t+1, t+2, t+3, ...）
- * @param future_mean_array 未来予測の平均値配列 [FUTURE_SPAN]（符号付き、正負両方）
- * @param support サポート値
- * @param num_attributes 属性数
- * @param support_count サポートカウント（マッチした回数）
- * @return 品質基準を満たす場合1（低分散 AND 極端値）、満たさない場合0
+ * @param future_sigma_array 未来予測のσ配列 [FUTURE_SPAN]（t+1, t+2, ...）
+ * @param future_mean_array  未来予測の平均値配列 [FUTURE_SPAN]（t+1, t+2, ...）
+ * @param support            サポート率（matched_count / negative_count）
+ * @param num_attributes     属性数
+ * @param quadrant_counts    4象限のカウント配列 [Q1, Q2, Q3, Q4]
+ * @return 1:品質基準を満たす, 0:満たさない
  */
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
-                       double support, int num_attributes, int support_count)
+                       double support, int num_attributes,
+                       int *quadrant_counts)
 {
-    int i;
-
-    // 最小サンプル数チェック（統計的信頼性を確保）
-    if (support_count < MIN_SUPPORT_COUNT)
+    // ========================================
+    // Stage 1: 基本品質チェック
+    // ========================================
+    if (support < Minsup || num_attributes < MIN_ATTRIBUTES)
     {
-        return 0; // サンプル数不足
+        return 0; // 最低基準を満たさない
     }
 
-    // 基本的な品質チェック
-    int basic_check = (support >= Minsup &&               // サポート値が閾値以上
-                       num_attributes >= MIN_ATTRIBUTES); // 最小属性数以上
-
-    if (!basic_check)
-    {
-        return 0; // 基本チェック失敗
-    }
-
-    // 極端値フィルター: 低分散 AND 絶対平均値が大きい
-    // 研究目的: 0から離れた小集団を発見（正負両方の極端値）
-    //
-    // 戦略: 絶対値ベースで評価することで、第1～4象限すべてのルールを発見
-    //   第1象限 (++): X(t+1)>0, X(t+2)>0 (正の極端値)
-    //   第2象限 (-+): X(t+1)<0, X(t+2)>0 (t+1負/t+2正)
-    //   第3象限 (--): X(t+1)<0, X(t+2)<0 (負の極端値)
-    //   第4象限 (+-): X(t+1)>0, X(t+2)<0 (t+1正/t+2負)
-
-    // 1. 低分散チェック: すべての未来スパンでsigma <= Maxsigx
-    int low_variance = 1;
-    for (i = 0; i < FUTURE_SPAN; i++)
+    // ========================================
+    // Stage 2: 予測安定性チェック（低分散）
+    // ========================================
+    // すべての未来時点（t+1, t+2, ...）で分散が閾値以下であること
+    for (int i = 0; i < FUTURE_SPAN; i++)
     {
         if (future_sigma_array[i] > Maxsigx)
         {
-            low_variance = 0;
-            break;
+            return 0; // 予測が不安定（高分散）
         }
     }
 
-    // 2. 絶対平均値チェック: X(t+1)とX(t+2)の絶対値が両方とも閾値以上
-    //    正負を問わず、0から離れた極端な値を持つパターンを採用
-    double abs_mean_t1 = fabs(future_mean_array[0]); // t+1の絶対平均値
-    double abs_mean_t2 = fabs(future_mean_array[1]); // t+2の絶対平均値
-    int high_abs_mean = (abs_mean_t1 >= Min_Mean && abs_mean_t2 >= Min_Mean);
-
-    // 3. 両方を満たす場合のみ採用
-    if (low_variance && high_abs_mean)
+    // ========================================
+    // Stage 3: パターン偏りチェック（集中度）
+    // ========================================
+    // 象限集中度 >= MIN_CONCENTRATION (40%)
+    // ランダムパターン（25%前後）を排除
+    double concentration = calculate_concentration_ratio(quadrant_counts);
+    if (concentration < MIN_CONCENTRATION)
     {
-        return 1; // High-support rule（低分散 かつ 極端値）
+        return 0; // 象限分布が均等（方向性が不明確）
     }
-    return 0; // 条件を満たさないルールは採用しない
+
+    // ========================================
+    // Stage 4: 統計的異常チェック（Mean閾値）
+    // ========================================
+    // 目的: 条件付き平均が0から遠く離れた希少パターンを発見
+    // 条件: すべての未来時点（t+1, t+2, ...）で |mean| >= Minmean
+    // 理由: 無条件分布 μ=0.0077% から |mean|>=0.5% は約1σ以上の偏差
+
+    for (int i = 0; i < FUTURE_SPAN; i++)
+    {
+        double abs_mean = fabs(future_mean_array[i]); // 絶対値を計算
+
+        if (abs_mean < Minmean)
+        {
+            return 0; // 1つでも閾値未満なら失格
+        }
+    }
+    // すべての時点で |mean| >= Minmean を満たした
+
+    // ========================================
+    // すべてのフィルタをパス
+    // ========================================
+    return 1;
 }
 
 /**
@@ -2360,8 +2448,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // ルールの品質チェック（サポートカウント、標準偏差、属性数、正期待値をチェック）
-            if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2, matched_count))
+            // ルールの品質チェック（サポート率、標準偏差、属性数、集中度、Mean閾値をチェック）
+            if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
+                                   quadrant_count[individual][k][loop_j]))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {
@@ -2466,33 +2555,63 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             // 集中度を計算（0.0 ~ 1.0）
                             double concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
 
-                            // 集中度に応じてボーナス付与
-                            if (concentration_ratio >= CONCENTRATION_THRESHOLD_EXCELLENT)
+                            // 集中度に応じてボーナス付与（5段階の連続的報酬）
+                            if (concentration_ratio >= CONCENTRATION_THRESHOLD_5)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_EXCELLENT; // 90%以上
+                                concentration_bonus = CONCENTRATION_BONUS_5; // 60%+: 25000点
                             }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_GOOD)
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_4)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_GOOD; // 80-89%
+                                concentration_bonus = CONCENTRATION_BONUS_4; // 55%+: 15000点
                             }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_FAIR)
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_3)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_FAIR; // 70-79%
+                                concentration_bonus = CONCENTRATION_BONUS_3; // 50%+: 8000点
                             }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_ACCEPTABLE)
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_2)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_ACCEPTABLE; // 60-69%
+                                concentration_bonus = CONCENTRATION_BONUS_2; // 45%+: 2000点
                             }
-                            // 60%未満はボーナスなし
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_1)
+                            {
+                                concentration_bonus = CONCENTRATION_BONUS_1; // 40%+: 500点
+                            }
+                            // 40%未満はフィルタで除外されているのでここには到達しない
                         }
 
-                        // 適応度を更新（新規ルールボーナス + 一貫性ボーナス + 象限集中度ボーナス付き）
+                        /* 【新規】統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
+                        double significance_bonus = 0.0;
+
+                        // t+1とt+2の絶対平均値を取得
+                        double abs_mean_t1 = fabs(future_mean_ptr[0]); // |mean(t+1)|
+                        double abs_mean_t2 = fabs(future_mean_ptr[1]); // |mean(t+2)|
+
+                        // より強い方の絶対平均値を使用（どちらか一方が強ければOK）
+                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
+
+                        // 統計的有意性に応じてボーナス付与
+                        if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_3)
+                        {
+                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_3; // |mean| >= 0.8%
+                        }
+                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_2)
+                        {
+                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_2; // |mean| >= 0.5%
+                        }
+                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
+                        {
+                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_1; // |mean| >= 0.3%
+                        }
+                        // |mean| < 0.3%はボーナスなし（ゼロ近傍パターン）
+
+                        // 適応度を更新（新規ルールボーナス + 一貫性ボーナス + 象限集中度ボーナス + 統計的有意性ボーナス付き）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
                             consistency_bonus +   // ← 一貫性ボーナス
-                            concentration_bonus + // ← 【新規】象限集中度ボーナス（主評価指標）
+                            concentration_bonus + // ← 【新規】象限集中度ボーナス（視覚化目標）
+                            significance_bonus +  // ← 【新規】統計的有意性ボーナス（研究目標）
                             FITNESS_NEW_RULE_BONUS;
 
                         // 属性使用履歴を更新
@@ -2568,6 +2687,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
 
                         /* 【新規】象限集中度ボーナスを計算（重複ルールでも象限集中度は評価） */
                         double concentration_bonus = 0.0;
+                        double concentration_ratio = 0.0;
 
                         // 4象限のカウントを取得
                         int q1 = quadrant_count[individual][k][loop_j][0];
@@ -2588,35 +2708,80 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                                 max_quadrant_count = q4;
 
                             // 集中度を計算（0.0 ~ 1.0）
-                            double concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
+                            concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
 
-                            // 集中度に応じてボーナス付与
-                            if (concentration_ratio >= CONCENTRATION_THRESHOLD_EXCELLENT)
+                            // 集中度に応じてボーナス付与（5段階の連続的報酬）
+                            if (concentration_ratio >= CONCENTRATION_THRESHOLD_5)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_EXCELLENT; // 90%以上
+                                concentration_bonus = CONCENTRATION_BONUS_5; // 60%+: 25000点
                             }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_GOOD)
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_4)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_GOOD; // 80-89%
+                                concentration_bonus = CONCENTRATION_BONUS_4; // 55%+: 15000点
                             }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_FAIR)
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_3)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_FAIR; // 70-79%
+                                concentration_bonus = CONCENTRATION_BONUS_3; // 50%+: 8000点
                             }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_ACCEPTABLE)
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_2)
                             {
-                                concentration_bonus = CONCENTRATION_BONUS_ACCEPTABLE; // 60-69%
+                                concentration_bonus = CONCENTRATION_BONUS_2; // 45%+: 2000点
                             }
-                            // 60%未満はボーナスなし
+                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_1)
+                            {
+                                concentration_bonus = CONCENTRATION_BONUS_1; // 40%+: 500点
+                            }
+                            // 40%未満はフィルタで除外されているのでここには到達しない
                         }
 
-                        // 重複ルールの場合（新規ボーナスなし、一貫性・象限集中度ボーナスあり）
+                        /* 【新規】統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
+                        double significance_bonus = 0.0;
+
+                        // t+1とt+2の絶対平均値を取得
+                        double abs_mean_t1 = fabs(future_mean_ptr[0]); // |mean(t+1)|
+                        double abs_mean_t2 = fabs(future_mean_ptr[1]); // |mean(t+2)|
+
+                        // より強い方の絶対平均値を使用（どちらか一方が強ければOK）
+                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
+
+                        // 統計的有意性に応じてボーナス付与
+                        if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_3)
+                        {
+                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_3; // |mean| >= 0.8%
+                        }
+                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_2)
+                        {
+                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_2; // |mean| >= 0.5%
+                        }
+                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
+                        {
+                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_1; // |mean| >= 0.3%
+                        }
+                        // |mean| < 0.3%はボーナスなし（ゼロ近傍パターン）
+
+                        // 【デバッグ】最初の10個の高集中度ルールのみログ出力
+                        static int debug_count = 0;
+                        if (debug_count < 10 && concentration_ratio >= 0.45)
+                        {
+                            fprintf(stderr, "[FITNESS_DEBUG #%d] Conc=%.1f%% Q(%d,%d,%d,%d) Bonus=%.0f Sig=%.3f SigBonus=%.0f Support=%d\n",
+                                    debug_count + 1,
+                                    concentration_ratio * 100,
+                                    q1, q2, q3, q4,
+                                    concentration_bonus,
+                                    max_abs_mean,
+                                    significance_bonus,
+                                    (int)support);
+                            debug_count++;
+                        }
+
+                        // 重複ルールの場合（新規ボーナスなし、一貫性・象限集中度・統計的有意性ボーナスあり）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            consistency_bonus +  // ← 一貫性ボーナス
-                            concentration_bonus; // ← 【新規】象限集中度ボーナス（主評価指標）
+                            consistency_bonus +   // ← 一貫性ボーナス
+                            concentration_bonus + // ← 【新規】象限集中度ボーナス（視覚化目標）
+                            significance_bonus;   // ← 【新規】統計的有意性ボーナス（研究目標）
                     }
 
                     // ルール数上限チェック
@@ -3301,8 +3466,8 @@ void merge_trial_rules_to_global_pool(struct trial_state *state)
             // matched_indicesポインタを元に戻す
             global_rule_pool[global_rule_count].matched_indices = temp_indices;
 
-            // matched_indicesの内容を個別にコピー
-            for (k = 0; k < rule_pool[i].support_count; k++)
+            // matched_indicesの内容を個別にコピー（matched_count_visを使用）
+            for (k = 0; k < rule_pool[i].matched_count_vis; k++)
             {
                 global_rule_pool[global_rule_count].matched_indices[k] = rule_pool[i].matched_indices[k];
             }
