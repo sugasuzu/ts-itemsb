@@ -8,7 +8,7 @@
 
 /* 時系列パラメータ */
 #define TIMESERIES_MODE 1
-#define MAX_TIME_DELAY 4
+#define MAX_TIME_DELAY 3
 #define MIN_TIME_DELAY 0
 #define PREDICTION_SPAN 1
 #define FUTURE_SPAN 2
@@ -33,7 +33,7 @@
 
 /* ルールマイニング制約 */
 #define Minsup 0.001
-#define Maxsigx 0.5
+#define Maxsigx 1.0
 #define MIN_ATTRIBUTES 2
 #define Minmean 0.1
 #define MIN_CONCENTRATION 0.40
@@ -555,7 +555,7 @@ void allocate_future_arrays()
         }
     }
 
-    /* 【新規】future_positive_sum配列の割り当て（方向性分離統計） */
+    /* future_positive_sum配列の割り当て（方向性分離統計） */
     future_positive_sum = (double ****)malloc(Nkotai * sizeof(double ***));
     if (future_positive_sum == NULL)
     {
@@ -593,7 +593,7 @@ void allocate_future_arrays()
         }
     }
 
-    /* 【新規】future_negative_sum配列の割り当て（方向性分離統計） */
+    /* future_negative_sum配列の割り当て（方向性分離統計） */
     future_negative_sum = (double ****)malloc(Nkotai * sizeof(double ***));
     if (future_negative_sum == NULL)
     {
@@ -631,7 +631,7 @@ void allocate_future_arrays()
         }
     }
 
-    /* 【新規】future_positive_count配列の割り当て（方向性分離統計・int型） */
+    /* future_positive_count配列の割り当て（方向性分離統計・int型） */
     future_positive_count = (int ****)malloc(Nkotai * sizeof(int ***));
     if (future_positive_count == NULL)
     {
@@ -669,7 +669,7 @@ void allocate_future_arrays()
         }
     }
 
-    /* 【新規】future_negative_count配列の割り当て（方向性分離統計・int型） */
+    /* future_negative_count配列の割り当て（方向性分離統計・int型） */
     future_negative_count = (int ****)malloc(Nkotai * sizeof(int ***));
     if (future_negative_count == NULL)
     {
@@ -707,7 +707,7 @@ void allocate_future_arrays()
         }
     }
 
-    /* 【新規】quadrant_count配列の割り当て（象限集中度統計・int型） */
+    /* quadrant_count配列の割り当て（象限集中度統計・int型） */
     quadrant_count = (int ****)malloc(Nkotai * sizeof(int ***));
     if (quadrant_count == NULL)
     {
@@ -761,14 +761,14 @@ void initialize_future_arrays()
                     future_sum[i][j][k][offset] = 0.0;
                     future_sigma_array[i][j][k][offset] = 0.0;
 
-                    /* 【新規】方向性分離統計の初期化 */
+                    /* 方向性分離統計の初期化 */
                     future_positive_sum[i][j][k][offset] = 0.0;
                     future_negative_sum[i][j][k][offset] = 0.0;
                     future_positive_count[i][j][k][offset] = 0;
                     future_negative_count[i][j][k][offset] = 0;
                 }
 
-                /* 【新規】象限集中度統計の初期化 */
+                /* 象限集中度統計の初期化 */
                 for (offset = 0; offset < 4; offset++)
                 {
                     quadrant_count[i][j][k][offset] = 0;
@@ -816,7 +816,7 @@ void free_future_arrays()
         free(future_sigma_array);
     }
 
-    /* 【新規】future_positive_sum配列の解放（方向性分離統計） */
+    /* future_positive_sum配列の解放（方向性分離統計） */
     if (future_positive_sum != NULL)
     {
         for (i = 0; i < Nkotai; i++)
@@ -834,7 +834,7 @@ void free_future_arrays()
         free(future_positive_sum);
     }
 
-    /* 【新規】future_negative_sum配列の解放（方向性分離統計） */
+    /* future_negative_sum配列の解放（方向性分離統計） */
     if (future_negative_sum != NULL)
     {
         for (i = 0; i < Nkotai; i++)
@@ -852,7 +852,7 @@ void free_future_arrays()
         free(future_negative_sum);
     }
 
-    /* 【新規】future_positive_count配列の解放（方向性分離統計・int型） */
+    /* future_positive_count配列の解放（方向性分離統計・int型） */
     if (future_positive_count != NULL)
     {
         for (i = 0; i < Nkotai; i++)
@@ -870,7 +870,7 @@ void free_future_arrays()
         free(future_positive_count);
     }
 
-    /* 【新規】future_negative_count配列の解放（方向性分離統計・int型） */
+    /* future_negative_count配列の解放（方向性分離統計・int型） */
     if (future_negative_count != NULL)
     {
         for (i = 0; i < Nkotai; i++)
@@ -888,7 +888,7 @@ void free_future_arrays()
         free(future_negative_count);
     }
 
-    /* 【新規】quadrant_count配列の解放（象限集中度統計・int型） */
+    /* quadrant_count配列の解放（象限集中度統計・int型） */
     if (quadrant_count != NULL)
     {
         for (i = 0; i < Nkotai; i++)
@@ -1758,7 +1758,7 @@ void calculate_rule_statistics()
                             future_sigma_array[individual][k][j][offset] = 0;
                         }
 
-                        /* 【新規】方向性分離統計の計算 */
+                        /* 方向性分離統計の計算 */
                         int pos_count = future_positive_count[individual][k][j][offset];
                         int neg_count = future_negative_count[individual][k][j][offset];
 
@@ -2064,7 +2064,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
             double *future_mean_ptr = future_sum[individual][k][loop_j];
             double *future_sigma_ptr = future_sigma_array[individual][k][loop_j];
 
-            /* 【新規】方向性分離統計へのポインタを取得 */
+            /* 方向性分離統計へのポインタを取得 */
             double *positive_mean_ptr = future_positive_sum[individual][k][loop_j];
             double *negative_mean_ptr = future_negative_sum[individual][k][loop_j];
             int *positive_count_ptr = future_positive_count[individual][k][loop_j];
@@ -2117,71 +2117,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
 
-                        /* 極端値ボーナスを削除（象限集中度ボーナスで代替）
-                        // 極端値ボーナスを計算（研究目的：0から離れた小集団を発見）
-                        double abs_mean_t1 = fabs(future_mean_ptr[0]); // t+1の絶対平均値
-                        double abs_mean_t2 = fabs(future_mean_ptr[1]); // t+2の絶対平均値
-                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
-
-                        double extreme_bonus = 0.0;
-                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3)
-                        {
-                            extreme_bonus = EXTREME_MEAN_BONUS_3; // 非常に強い (>= 0.4%)
-                        }
-                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2)
-                        {
-                            extreme_bonus = EXTREME_MEAN_BONUS_2; // 強い (>= 0.25%)
-                        }
-                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1)
-                        {
-                            extreme_bonus = EXTREME_MEAN_BONUS_1; // やや強い (>= 0.15%)
-                        }
-                        */
-
-                        // 一貫性ボーナスを計算（研究目的：散布図で1象限に集中するパターンを発見）
-                        double consistency_bonus = 0.0;
-
-                        // 方向性カウントを取得
-                        int pos_count_t1 = future_positive_count[individual][k][loop_j][0]; // t+1で正の回数
-                        int neg_count_t1 = future_negative_count[individual][k][loop_j][0]; // t+1で負の回数
-                        int total_t1 = pos_count_t1 + neg_count_t1;
-
-                        int pos_count_t2 = future_positive_count[individual][k][loop_j][1]; // t+2で正の回数
-                        int neg_count_t2 = future_negative_count[individual][k][loop_j][1]; // t+2で負の回数
-                        int total_t2 = pos_count_t2 + neg_count_t2;
-
-                        if (total_t1 > 0 && total_t2 > 0)
-                        {
-                            // 各時点での正の割合を計算
-                            double ratio_t1 = (double)pos_count_t1 / total_t1;
-                            double ratio_t2 = (double)pos_count_t2 / total_t2;
-
-                            // t+1での方向性の一貫性（80%以上正 or 20%以下正）
-                            int consistent_t1 = (ratio_t1 >= CONSISTENCY_THRESHOLD_HIGH ||
-                                                 ratio_t1 <= CONSISTENCY_THRESHOLD_LOW);
-
-                            // t+2での方向性の一貫性（80%以上正 or 20%以下正）
-                            int consistent_t2 = (ratio_t2 >= CONSISTENCY_THRESHOLD_HIGH ||
-                                                 ratio_t2 <= CONSISTENCY_THRESHOLD_LOW);
-
-                            // 各時点での一貫性ボーナス
-                            if (consistent_t1)
-                            {
-                                consistency_bonus += CONSISTENCY_BONUS_SINGLE; // t+1が一方向に偏っている
-                            }
-                            if (consistent_t2)
-                            {
-                                consistency_bonus += CONSISTENCY_BONUS_SINGLE; // t+2が一方向に偏っている
-                            }
-
-                            // 両時点とも一貫している場合はさらにボーナス
-                            if (consistent_t1 && consistent_t2)
-                            {
-                                consistency_bonus += CONSISTENCY_BONUS_DOUBLE; // 散布図で特定象限に集中
-                            }
-                        }
-
-                        /* 【新規】象限集中度ボーナスを計算（研究目的：散布図の象限集中度を直接評価） */
+                        /* 象限集中度ボーナスを計算（研究目的：散布図の象限集中度を直接評価） */
                         double concentration_bonus = 0.0;
 
                         // 4象限のカウントを取得
@@ -2209,7 +2145,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             concentration_bonus = calculate_concentration_fitness_bonus(concentration_ratio);
                         }
 
-                        /* 【新規】統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
+                        /* 統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
                         double significance_bonus = 0.0;
 
                         // t+1とt+2の絶対平均値を取得
@@ -2222,14 +2158,13 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
                         significance_bonus = calculate_significance_bonus(max_abs_mean);
 
-                        // 適応度を更新（新規ルールボーナス + 一貫性ボーナス + 象限集中度ボーナス + 統計的有意性ボーナス付き）
+                        // 適応度を更新（新規ルールボーナス + 象限集中度ボーナス + 統計的有意性ボーナス付き）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            consistency_bonus +   // ← 一貫性ボーナス
-                            concentration_bonus + // ← 【新規】象限集中度ボーナス（視覚化目標）
-                            significance_bonus +  // ← 【新規】統計的有意性ボーナス（研究目標）
+                            concentration_bonus + // ← 象限集中度ボーナス（視覚化目標）
+                            significance_bonus +  // ← 統計的有意性ボーナス（研究目標）
                             FITNESS_NEW_RULE_BONUS;
 
                         // 属性使用履歴を更新
@@ -2246,64 +2181,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     }
                     else
                     {
-                        /* 極端値ボーナスを削除（象限集中度ボーナスで代替）
-                        // 極端値ボーナスを計算（重複ルールでも極端値は評価）
-                        double abs_mean_t1 = fabs(future_mean_ptr[0]);
-                        double abs_mean_t2 = fabs(future_mean_ptr[1]);
-                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
-
-                        double extreme_bonus = 0.0;
-                        if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_3)
-                        {
-                            extreme_bonus = EXTREME_MEAN_BONUS_3;
-                        }
-                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_2)
-                        {
-                            extreme_bonus = EXTREME_MEAN_BONUS_2;
-                        }
-                        else if (max_abs_mean >= EXTREME_MEAN_THRESHOLD_1)
-                        {
-                            extreme_bonus = EXTREME_MEAN_BONUS_1;
-                        }
-                        */
-
-                        // 一貫性ボーナスを計算（重複ルールでも一貫性は評価）
-                        double consistency_bonus = 0.0;
-
-                        int pos_count_t1 = future_positive_count[individual][k][loop_j][0];
-                        int neg_count_t1 = future_negative_count[individual][k][loop_j][0];
-                        int total_t1 = pos_count_t1 + neg_count_t1;
-
-                        int pos_count_t2 = future_positive_count[individual][k][loop_j][1];
-                        int neg_count_t2 = future_negative_count[individual][k][loop_j][1];
-                        int total_t2 = pos_count_t2 + neg_count_t2;
-
-                        if (total_t1 > 0 && total_t2 > 0)
-                        {
-                            double ratio_t1 = (double)pos_count_t1 / total_t1;
-                            double ratio_t2 = (double)pos_count_t2 / total_t2;
-
-                            int consistent_t1 = (ratio_t1 >= CONSISTENCY_THRESHOLD_HIGH ||
-                                                 ratio_t1 <= CONSISTENCY_THRESHOLD_LOW);
-                            int consistent_t2 = (ratio_t2 >= CONSISTENCY_THRESHOLD_HIGH ||
-                                                 ratio_t2 <= CONSISTENCY_THRESHOLD_LOW);
-
-                            if (consistent_t1)
-                            {
-                                consistency_bonus += CONSISTENCY_BONUS_SINGLE;
-                            }
-                            if (consistent_t2)
-                            {
-                                consistency_bonus += CONSISTENCY_BONUS_SINGLE;
-                            }
-
-                            if (consistent_t1 && consistent_t2)
-                            {
-                                consistency_bonus += CONSISTENCY_BONUS_DOUBLE;
-                            }
-                        }
-
-                        /* 【新規】象限集中度ボーナスを計算（重複ルールでも象限集中度は評価） */
+                        /* 象限集中度ボーナスを計算（重複ルールでも象限集中度は評価） */
                         double concentration_bonus = 0.0;
                         double concentration_ratio = 0.0;
 
@@ -2332,7 +2210,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             concentration_bonus = calculate_concentration_fitness_bonus(concentration_ratio);
                         }
 
-                        /* 【新規】統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
+                        /* 統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
                         double significance_bonus = 0.0;
 
                         // t+1とt+2の絶対平均値を取得
@@ -2360,14 +2238,13 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             debug_count++;
                         }
 
-                        // 重複ルールの場合（新規ボーナスなし、一貫性・象限集中度・統計的有意性ボーナスあり）
+                        // 重複ルールの場合（新規ボーナスなし、象限集中度・統計的有意性ボーナスあり）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            consistency_bonus +   // ← 一貫性ボーナス
-                            concentration_bonus + // ← 【新規】象限集中度ボーナス（視覚化目標）
-                            significance_bonus;   // ← 【新規】統計的有意性ボーナス（研究目標）
+                            concentration_bonus + // ← 象限集中度ボーナス（視覚化目標）
+                            significance_bonus;   // ← 統計的有意性ボーナス（研究目標）
                     }
 
                     // ルール数上限チェック
