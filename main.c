@@ -6,473 +6,475 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-/* ================================================================================
-   時系列対応版GNMiner - ルール発見システム
-
-   【概要】
-   このプログラムは、Genetic Network Programming (GNP)を使用して、
-   時系列データから予測ルールを自動発見するシステムです。
-
-   【主要機能】
-   1. 過去の複数時点の属性パターンから将来の値を予測
-   2. 時間遅延メカニズムによる時系列パターンの捕捉
-   3. 適応的学習による効率的なルール発見
-   4. 複数時点の未来予測（FUTURE_SPAN対応）
-   5. 動的な4次元配列による拡張性の高い設計
-   ================================================================================
-*/
-
-/* ================================================================================
-   定数定義セクション
-
-   このセクションでは、プログラム全体で使用される定数を定義します。
-   これらの値を変更することで、プログラムの動作を調整できます。
-   ================================================================================
-*/
-
 /* 時系列パラメータ */
-#define TIMESERIES_MODE 1 // 時系列モードの有効化（1:有効、0:無効）
-#define MAX_TIME_DELAY 4  // 最大時間遅延（t-4まで参照可能、選択肢A: 条件の多様性確保）
-#define MIN_TIME_DELAY 0  // 最小時間遅延（現在時点 t-0）
-#define PREDICTION_SPAN 1 // 予測スパン（未使用、互換性のため残存）
-#define FUTURE_SPAN 2     // 未来予測範囲（検証CSVに出力: t+1, t+2, ..., t+FUTURE_SPAN）
-#define ADAPTIVE_DELAY 1  // 適応的遅延学習の有効化（1:有効、0:無効）
+#define TIMESERIES_MODE 1
+#define MAX_TIME_DELAY 4
+#define MIN_TIME_DELAY 0
+#define PREDICTION_SPAN 1
+#define FUTURE_SPAN 2
+#define ADAPTIVE_DELAY 1
 
-/* ディレクトリ構造
-   出力ファイルを整理するためのディレクトリ構造を定義 */
-#define OUTPUT_DIR "output"                           // メイン出力ディレクトリ
-#define OUTPUT_DIR_IL "output/IL"                     // Individual Lists: ルールリスト
-#define OUTPUT_DIR_IA "output/IA"                     // Individual Analysis: 分析レポート
-#define OUTPUT_DIR_IB "output/IB"                     // Individual Backup: バックアップ
-#define OUTPUT_DIR_POOL "output/pool"                 // グローバルルールプール
-#define OUTPUT_DIR_DOC "output/doc"                   // ドキュメント・統計
-#define OUTPUT_DIR_VIS "output/vis"                   // 可視化用データ
-#define OUTPUT_DIR_VERIFICATION "output/verification" // ルール検証データ
+/* ディレクトリ構造 */
+#define OUTPUT_DIR "output"
+#define OUTPUT_DIR_IL "output/IL"
+#define OUTPUT_DIR_IA "output/IA"
+#define OUTPUT_DIR_IB "output/IB"
+#define OUTPUT_DIR_POOL "output/pool"
+#define OUTPUT_DIR_DOC "output/doc"
+#define OUTPUT_DIR_VIS "output/vis"
+#define OUTPUT_DIR_VERIFICATION "output/verification"
 
-/* ファイル名
-   入力データと出力ファイルのパスを定義 */
-#define DATANAME "1-deta-enginnering/crypto_data_hourly/BTC.txt" // 入力データファイル（デフォルト:BTC、時間足データ）
-#define POOL_FILE_A "output/pool/zrp01a.txt"                     // ルールプール出力A（詳細版）
-#define POOL_FILE_B "output/pool/zrp01b.txt"                     // ルールプール出力B（要約版）
-#define CONT_FILE "output/doc/zrd01.txt"                         // 統計情報ファイル
-#define RESULT_FILE "output/doc/zrmemo01.txt"                    // メモファイル（未使用）
+/* ファイル名 */
+#define DATANAME "1-deta-enginnering/crypto_data_hourly/BTC.txt"
+#define POOL_FILE_A "output/pool/zrp01a.txt"
+#define POOL_FILE_B "output/pool/zrp01b.txt"
+#define CONT_FILE "output/doc/zrd01.txt"
+#define RESULT_FILE "output/doc/zrmemo01.txt"
 
-/* 動的ファイルパス（コマンドライン引数で変更可能） */
-char stock_code[20] = "BTC";                                 // 銘柄/ペアコード
-char data_file_path[512] = DATANAME;                         // データファイルパス
-char output_base_dir[256] = "output";                        // 出力ベースディレクトリ
-char pool_file_a[512] = POOL_FILE_A;                         // 動的ルールプールA
-char pool_file_b[512] = POOL_FILE_B;                         // 動的ルールプールB
-char cont_file[512] = CONT_FILE;                             // 動的統計ファイル
-char output_dir_il[512] = OUTPUT_DIR_IL;                     // 動的IL出力
-char output_dir_ia[512] = OUTPUT_DIR_IA;                     // 動的IA出力
-char output_dir_ib[512] = OUTPUT_DIR_IB;                     // 動的IB出力
-char output_dir_pool[512] = OUTPUT_DIR_POOL;                 // 動的pool出力
-char output_dir_doc[512] = OUTPUT_DIR_DOC;                   // 動的doc出力
-char output_dir_vis[512] = OUTPUT_DIR_VIS;                   // 動的vis出力
-char output_dir_verification[512] = OUTPUT_DIR_VERIFICATION; // 動的verification出力
+/* ルールマイニング制約 */
+#define Minsup 0.001
+#define Maxsigx 0.5
+#define MIN_ATTRIBUTES 2
+#define Minmean 0.1
+#define MIN_CONCENTRATION 0.40
 
-/* データ構造パラメータ
-   CSVファイルから読み込み時に動的に設定される */
-int Nrd = 0; // レコード数（データの行数）
-int Nzk = 0; // 属性数（カラム数 - X列 - T列）
+/* 実験パラメータ */
+#define Nrulemax 2002
+#define Nstart 1000
+#define Ntry 10
 
-/* ルールマイニング制約
-   抽出するルールの品質を制御する閾値 */
-#define Minsup 0.001           // 最小サポート率: 10件/17482件相当（統計的信頼性確保）
-#define Maxsigx 0.5            // 最大X標準偏差（適度な分散許容）
-#define MIN_ATTRIBUTES 2       // ルールの最小属性数（緩和: 3→2、シンプルなパターンも許容）
-#define Minmean 0.1            // 絶対値閾値: |mean| >= 0.1% (約1σ)
-#define MIN_CONCENTRATION 0.40 // 最小集中度（新規: 40%以上のルールのみ登録）
+/* GNPパラメータ */
+#define Generation 201
+#define Nkotai 120
+#define Npn 10
+#define Njg 100
+#define Nmx 7
 
-/* Mean閾値フィルタ（統計的異常パターン発見）
-CLAUDE.md Option 1: Bidirectional Extremes (推奨設定)
+/* 突然変異率 */
+#define Muratep 1
+#define Muratej 6
+#define Muratea 6
+#define Muratedelay 6
+#define Nkousa 20
 
-研究目標: 条件付き平均が0から遠く離れた希少パターンを発見
+/* ルール構造パラメータ */
+#define MAX_ATTRIBUTES 8
+#define MAX_DEPTH 10
+#define HISTORY_GENERATIONS 5
+#define MAX_RECORDS 10000
+#define MAX_ATTRS 1000
+#define MAX_ATTR_NAME 50
+#define MAX_LINE_LENGTH 100000
 
-データ特性（BTC時間足）:
-- 無条件分布: μ = 0.0077%, σ = 0.5121%
-- 1σ閾値: μ ± 0.52% ≈ ±0.5%
-- 2σ閾値: μ ± 1.03% ≈ ±1.0%
+/* 進化計算パラメータ */
+#define ELITE_SIZE (Nkotai / 3)
+#define ELITE_COPIES 3
+#define CROSSOVER_PAIRS 20
+#define MUTATION_START_40 40
+#define MUTATION_START_80 80
 
-戦略:
-- 絶対値閾値: |mean| >= Minmean (正負両方向の異常を捕捉)
-- 複数時点チェック: すべての未来時点（t+1, t+2, ...）が閾値を満たす必要
+/* 品質判定パラメータ */
+#define HIGH_SUPPORT_BONUS 0.02
+#define LOW_VARIANCE_REDUCTION 1.0
+#define FITNESS_SUPPORT_WEIGHT 3
+#define FITNESS_SIGMA_OFFSET 0.50
+#define FITNESS_NEW_RULE_BONUS 20
+#define FITNESS_ATTRIBUTE_WEIGHT 1
+#define FITNESS_SIGMA_WEIGHT 8
 
-期待される結果:
-- 発見ルール数: ~50-200個（正負合計）
-- 統計的有意性: >1σ from data mean
-- 研究価値: 市場構造の regime change を検出
-*/
+/* 極端値ボーナス */
+#define EXTREME_MEAN_THRESHOLD_1 0.15
+#define EXTREME_MEAN_THRESHOLD_2 0.25
+#define EXTREME_MEAN_THRESHOLD_3 0.40
+#define EXTREME_MEAN_BONUS_1 30
+#define EXTREME_MEAN_BONUS_2 100
+#define EXTREME_MEAN_BONUS_3 200
 
-/* 実験パラメータ
-実験の規模と繰り返し回数を設定 */
-#define Nrulemax 2002 // 最大ルール数（メモリ制限）
-#define Nstart 1000   // 試行開始番号（ファイル名に使用）
-#define Ntry 10       // 試行回数（10回の独立した実験を実行）
+/* 一貫性ボーナス */
+#define CONSISTENCY_THRESHOLD_HIGH 0.8
+#define CONSISTENCY_THRESHOLD_LOW 0.2
+#define CONSISTENCY_BONUS_SINGLE 50
+#define CONSISTENCY_BONUS_DOUBLE 100
 
-/* GNPパラメータ
-   Genetic Network Programmingの構造を定義 */
-#define Generation 201 // 進化世代数（201世代まで進化）
-#define Nkotai 120     // 個体数（120個体の集団）
-#define Npn 10         // 処理ノード数（ルールの開始点）
-#define Njg 100        // 判定ノード数（属性をチェックするノード）
-#define Nmx 7          // 最大深さ（ルールの最大長）
+/* 象限集中度ボーナス */
+#define CONCENTRATION_THRESHOLD_1 0.40
+#define CONCENTRATION_THRESHOLD_2 0.45
+#define CONCENTRATION_THRESHOLD_3 0.50
+#define CONCENTRATION_THRESHOLD_4 0.55
+#define CONCENTRATION_THRESHOLD_5 0.60
 
-/* 突然変異率
-   進化操作での変異確率を制御（値が小さいほど変異頻度が高い） */
-#define Muratep 1     // 処理ノードの接続変更確率（1/1 = 100%）
-#define Muratej 6     // 判定ノードの接続変更確率（1/6 = 16.7%）
-#define Muratea 6     // 属性変更確率（1/6 = 16.7%）
-#define Muratedelay 6 // 時間遅延変更確率（1/6 = 16.7%）
-#define Nkousa 20     // 交叉点の数（交叉操作で交換する遺伝子数）
+#define CONCENTRATION_BONUS_1 500
+#define CONCENTRATION_BONUS_2 2000
+#define CONCENTRATION_BONUS_3 8000
+#define CONCENTRATION_BONUS_4 15000
+#define CONCENTRATION_BONUS_5 25000
 
-/* ルール構造パラメータ
-   ルールの内部表現に関する制限値 */
-#define MAX_ATTRIBUTES 8       // ルール内の最大属性数
-#define MAX_DEPTH 10           // 探索の最大深さ
-#define HISTORY_GENERATIONS 5  // 履歴保持世代数（適応学習用）
-#define MAX_RECORDS 10000      // 最大レコード数
-#define MAX_ATTRS 1000         // 最大属性数
-#define MAX_ATTR_NAME 50       // 属性名の最大長
-#define MAX_LINE_LENGTH 100000 // CSVの1行の最大文字数
+/* 統計的有意性ボーナス */
+#define STATISTICAL_SIGNIFICANCE_THRESHOLD_1 0.3
+#define STATISTICAL_SIGNIFICANCE_THRESHOLD_2 0.5
+#define STATISTICAL_SIGNIFICANCE_THRESHOLD_3 0.8
+#define STATISTICAL_SIGNIFICANCE_BONUS_1 2000
+#define STATISTICAL_SIGNIFICANCE_BONUS_2 10000
+#define STATISTICAL_SIGNIFICANCE_BONUS_3 20000
 
-/* 進化計算パラメータ
-   選択・交叉・突然変異の詳細設定 */
-#define ELITE_SIZE (Nkotai / 3) // エリート個体数（上位1/3）
-#define ELITE_COPIES 3          // エリート個体の複製数
-#define CROSSOVER_PAIRS 20      // 交叉ペア数
-#define MUTATION_START_40 40    // 突然変異開始位置1（個体40から）
-#define MUTATION_START_80 80    // 突然変異開始位置2（個体80から）
+/* レポート間隔 */
+#define REPORT_INTERVAL 5
+#define DELAY_DISPLAY_INTERVAL 20
+#define FILENAME_BUFFER_SIZE 256
+#define FILENAME_DIGITS 5
+#define FITNESS_INIT_OFFSET -0.00001
+#define INITIAL_DELAY_HISTORY 1
+#define REFRESH_BONUS 2
 
-/* 品質判定パラメータ
-   ルールの品質評価に使用する閾値とボーナス */
-#define HIGH_SUPPORT_BONUS 0.02    // 高サポートルールのボーナス閾値
-#define LOW_VARIANCE_REDUCTION 1.0 // 低分散ルールの削減値
-#define FITNESS_SUPPORT_WEIGHT 3   // 適応度計算：サポート値の重み (段階的削減: 5→3、ボーナスとのバランス)
-#define FITNESS_SIGMA_OFFSET 0.50  // 適応度計算：標準偏差のオフセット (集中度優先: σ重視を緩和)
-#define FITNESS_NEW_RULE_BONUS 20  // 適応度計算：新規ルールボーナス
-#define FITNESS_ATTRIBUTE_WEIGHT 1 // 適応度計算：属性数の重み
-#define FITNESS_SIGMA_WEIGHT 8     // 適応度計算：標準偏差の重み (バランス調整: 5→8)
+/* 構造体定義 */
 
-/* 極端値ボーナス（研究目的：0から離れた小集団を発見）
-
-   【戦略】絶対値ベースでの両側極端値発見
-   - 正の極端値（mean >> 0）と負の極端値（mean << 0）の両方を発見
-   - 4象限すべてのパターンを捉える：
-     * Q1 (++): X(t+1)>0, X(t+2)>0 (強い上昇継続)
-     * Q2 (-+): X(t+1)<0, X(t+2)>0 (反転上昇)
-     * Q3 (--): X(t+1)<0, X(t+2)<0 (強い下落継続)
-     * Q4 (+-): X(t+1)>0, X(t+2)<0 (反転下落)
-
-   【データ駆動型閾値設定】
-   BTC時間足データ（17,482レコード）の統計特性:
-   - データ平均: μ = 0.0077%
-   - データ標準偏差: σ = 0.5121%
-   - 観測された最大絶対値: |mean| = 0.27%
-
-   閾値の根拠:
-   - THRESHOLD_1 (0.15%): μ + 0.3σ相当、やや強いパターン
-   - THRESHOLD_2 (0.25%): μ + 0.5σ相当、統計的に有意
-   - THRESHOLD_3 (0.40%): μ + 0.8σ相当、非常に希少な極端値
-
-   【適応度への影響】
-   - 通常ルール（|mean|=0.08%）: ボーナスなし
-   - やや強い（|mean|=0.15%）: +30ポイント
-   - 強い（|mean|=0.25%）: +100ポイント
-   - 非常に強い（|mean|=0.40%）: +200ポイント
-
-   → サポート数が小さくても極端値を持つルールが進化的に生き残る
- */
-#define EXTREME_MEAN_THRESHOLD_1 0.15 // やや強いパターンの閾値（μ + 0.3σ）
-#define EXTREME_MEAN_THRESHOLD_2 0.25 // 強いパターンの閾値（μ + 0.5σ）
-#define EXTREME_MEAN_THRESHOLD_3 0.40 // 非常に強いパターンの閾値（μ + 0.8σ）
-#define EXTREME_MEAN_BONUS_1 30       // やや強いパターンのボーナス
-#define EXTREME_MEAN_BONUS_2 100      // 強いパターンのボーナス
-#define EXTREME_MEAN_BONUS_3 200      // 非常に強いパターンのボーナス
-
-/* 一貫性ボーナス（研究目的：散布図で1象限に集中するパターンを発見）
-
-   【戦略】方向性の一貫性を評価
-   各時点（t+1, t+2）で正/負どちらかに偏っているルールに高ボーナス
-
-   【評価基準】
-   - 各時点で80%以上が同じ方向 → 一方向に偏っている（一貫性が高い）
-   - 両時点とも偏っている → 散布図で特定象限に集中
-
-   【効果】
-   - t+1が80%正、t+2が80%負 → Q4象限に集中（上昇→下落パターン）
-   - t+1が80%正、t+2が80%正 → Q1象限に集中（継続上昇パターン）
-   - t+1が80%負、t+2が80%負 → Q3象限に集中（継続下落パターン）
-   - t+1が80%負、t+2が80%正 → Q2象限に集中（下落→上昇パターン）
-
-   【ボーナス体系】
-   - 単一時点での一貫性: +50ポイント
-   - 両時点での一貫性: +100ポイント（追加）
-   - 最大合計: +200ポイント（各50 + 追加100）
- */
-#define CONSISTENCY_THRESHOLD_HIGH 0.8 // 高偏り閾値（80%以上）
-#define CONSISTENCY_THRESHOLD_LOW 0.2  // 低偏り閾値（20%以下）
-#define CONSISTENCY_BONUS_SINGLE 50    // 単一時点の一貫性ボーナス
-#define CONSISTENCY_BONUS_DOUBLE 100   // 両時点の一貫性ボーナス
-
-/* 象限集中度ボーナス（研究目的：散布図で1象限に集中するパターンを発見）
-
-   【戦略】実際の象限分布を直接評価
-   各ルールについて、4象限のうち最大集中象限の割合を計算
-
-   【評価基準】
-   - 90%以上が同一象限 → 超優秀（+500ポイント）
-   - 80-89%が同一象限 → 優秀（+300ポイント）
-   - 70-79%が同一象限 → 良好（+150ポイント）
-   - 60-69%が同一象限 → 可（+50ポイント）
-   - 60%未満 → ボーナスなし
-
-   【効果】
-   - ルール#245のような83.2%集中パターンに+300ポイント
-   - 目標（70-90%集中）を直接評価・優先
-   - 一貫性ボーナスの上位互換として機能
- */
-/* 象限集中度ボーナス（5段階の連続的報酬）
-   40%から60%まで刻み、より高い集中度に焦点 */
-#define CONCENTRATION_THRESHOLD_1 0.40 // 40%以上（フィルタ通過ライン）
-#define CONCENTRATION_THRESHOLD_2 0.45 // 45%以上
-#define CONCENTRATION_THRESHOLD_3 0.50 // 50%以上（目標ライン）
-#define CONCENTRATION_THRESHOLD_4 0.55 // 55%以上
-#define CONCENTRATION_THRESHOLD_5 0.60 // 60%以上（理想ライン）
-
-#define CONCENTRATION_BONUS_1 500   // 40%: ベースライン（×1）
-#define CONCENTRATION_BONUS_2 2000  // 45%: ×4
-#define CONCENTRATION_BONUS_3 8000  // 50%: ×16（目標達成）
-#define CONCENTRATION_BONUS_4 15000 // 55%: ×30
-#define CONCENTRATION_BONUS_5 25000 // 60%: ×50（最大報酬）
-
-/* 統計的有意性ボーナス（CLAUDE.md研究目標：市場異常の発見）
-
-   【目的】
-   データ平均（μ = 0.0077%）から大きく離れたパターンを優先的に発見
-
-   【データ統計】
-   - μ_data = 0.0077%（ほぼゼロ = ランダムウォーク）
-   - σ_data = 0.5121%
-
-   【統計的有意性の基準】
-   |mean_rule - μ_data| >= 1σ ≈ 0.5%
-
-   【ボーナス体系】
-   - |mean| >= 0.8%: +5000ポイント（μ + 1.5σ、非常に強い市場異常）
-   - |mean| >= 0.5%: +2000ポイント（μ + 1.0σ、統計的に有意）
-   - |mean| >= 0.3%: +500ポイント（μ + 0.6σ、やや有意）
-
-   【研究価値】
-   - 稀少だが強い統計的シグナルを持つパターンの発見
-   - 条件付き市場非効率性の証拠
-   - 正負両方向の異常を捉える（双方向評価）
-*/
-#define STATISTICAL_SIGNIFICANCE_THRESHOLD_1 0.3 // やや有意閾値（μ + 0.6σ）
-#define STATISTICAL_SIGNIFICANCE_THRESHOLD_2 0.5 // 有意閾値（μ + 1.0σ）
-#define STATISTICAL_SIGNIFICANCE_THRESHOLD_3 0.8 // 非常に有意閾値（μ + 1.5σ）
-#define STATISTICAL_SIGNIFICANCE_BONUS_1 2000    // やや有意ボーナス (厳格化: 500→2000、0.3%でも評価)
-#define STATISTICAL_SIGNIFICANCE_BONUS_2 10000   // 有意ボーナス (厳格化: 2000→10000、0.5%を最優先)
-#define STATISTICAL_SIGNIFICANCE_BONUS_3 20000   // 非常に有意ボーナス (厳格化: 5000→20000、0.8%を極めて優先)
-
-/* レポート間隔
-   進捗報告とログ出力の頻度 */
-#define REPORT_INTERVAL 5            // 進捗報告間隔（5世代ごと）
-#define DELAY_DISPLAY_INTERVAL 20    // 遅延使用状況表示間隔
-#define FILENAME_BUFFER_SIZE 256     // ファイル名バッファサイズ
-#define FILENAME_DIGITS 5            // ファイル名の桁数
-#define FITNESS_INIT_OFFSET -0.00001 // 適応度初期化オフセット
-#define INITIAL_DELAY_HISTORY 1      // 遅延履歴の初期値
-#define REFRESH_BONUS 2              // リフレッシュボーナス
-
-/* ================================================================================
-   構造体定義
-
-   プログラムで使用する主要なデータ構造を定義します。
-   これらの構造体は、時系列データ、ルール、統計情報などを管理します。
-   ================================================================================
-*/
-
-/* 時系列ルール構造体
-   発見されたルールの完全な情報を保持 */
+/* 時系列ルール構造体 */
 struct temporal_rule
 {
-    // ルールの前件部（IF部分）
-    int antecedent_attrs[MAX_ATTRIBUTES]; // 属性ID配列（1-indexed、0は未使用）
-    int time_delays[MAX_ATTRIBUTES];      // 各属性の時間遅延（0=t, 1=t-1, ...）
+    int antecedent_attrs[MAX_ATTRIBUTES];
+    int time_delays[MAX_ATTRIBUTES];
 
-    // 未来予測値の統計（t+1, t+2, ..., t+FUTURE_SPAN）
-    double future_mean[FUTURE_SPAN];  // 各未来時点の予測値平均
-    double future_sigma[FUTURE_SPAN]; // 各未来時点の予測値標準偏差
+    double future_mean[FUTURE_SPAN];
+    double future_sigma[FUTURE_SPAN];
 
-    // ルールの品質指標
-    int support_count;     // サポートカウント（マッチした回数）
-    int negative_count;    // ネガティブカウント（評価対象数）
-    double support_rate;   // サポート率（support_count / negative_count）
-    int high_support_flag; // 高サポートフラグ（1:高サポート）
-    int low_variance_flag; // 低分散フラグ（1:低分散）
-    int num_attributes;    // 属性数
+    int support_count;
+    int negative_count;
+    double support_rate;
+    int high_support_flag;
+    int low_variance_flag;
+    int num_attributes;
 
-    // マッチした時点のインデックス（可視化・分析用）
-    int *matched_indices;  // マッチしたレコードのインデックス配列
-    int matched_count_vis; // マッチ数（可視化用）
+    int *matched_indices;
+    int matched_count_vis;
 };
 
-/* 比較用ルール構造体
-   ルールの重複チェック用の簡易版 */
+/* 比較用ルール構造体 */
 struct cmrule
 {
-    int antecedent_attrs[MAX_ATTRIBUTES]; // 属性ID配列
-    int num_attributes;                   // 属性数
+    int antecedent_attrs[MAX_ATTRIBUTES];
+    int num_attributes;
 };
 
-/* 試行状態管理構造体
-   各試行（トライアル）の実行状態を管理 */
+/* 試行状態管理構造体 */
 struct trial_state
 {
-    int trial_id;                // 試行ID
-    int rule_count;              // 発見したルール数
-    int high_support_rule_count; // 高サポートルール数
-    int low_variance_rule_count; // 低分散ルール数
-    int generation;              // 現在の世代数
-    double elapsed_time;         // 経過時間（秒）
+    int trial_id;
+    int rule_count;
+    int high_support_rule_count;
+    int low_variance_rule_count;
+    int generation;
+    double elapsed_time;
 
-    // 出力ファイル名
-    char filename_rule[FILENAME_BUFFER_SIZE];   // ルールリストファイル
-    char filename_report[FILENAME_BUFFER_SIZE]; // レポートファイル
-    char filename_local[FILENAME_BUFFER_SIZE];  // ローカル詳細ファイル
+    char filename_rule[FILENAME_BUFFER_SIZE];
+    char filename_report[FILENAME_BUFFER_SIZE];
+    char filename_local[FILENAME_BUFFER_SIZE];
 };
 
-/* ================================================================================
-   グローバル変数
+/* グローバル変数 */
 
-   プログラム全体で共有されるデータを管理します。
-   動的メモリ割り当てを使用して、データサイズに応じて柔軟に対応します。
-   ================================================================================
-*/
+char stock_code[20] = "BTC";
+char data_file_path[512] = DATANAME;
+char output_base_dir[256] = "output";
+char pool_file_a[512] = POOL_FILE_A;
+char pool_file_b[512] = POOL_FILE_B;
+char cont_file[512] = CONT_FILE;
+char output_dir_il[512] = OUTPUT_DIR_IL;
+char output_dir_ia[512] = OUTPUT_DIR_IA;
+char output_dir_ib[512] = OUTPUT_DIR_IB;
+char output_dir_pool[512] = OUTPUT_DIR_POOL;
+char output_dir_doc[512] = OUTPUT_DIR_DOC;
+char output_dir_vis[512] = OUTPUT_DIR_VIS;
+char output_dir_verification[512] = OUTPUT_DIR_VERIFICATION;
 
-/* データバッファ（動的割り当て）
-   CSVから読み込んだデータを保持 */
-int **data_buffer = NULL;           // 属性データ [レコード数][属性数]
-double *x_buffer = NULL;            // X値（CSVのX列：現在時点の変化率）[レコード数]
-char **timestamp_buffer = NULL;     // タイムスタンプ [レコード数][最大50文字]
-char **attribute_dictionary = NULL; // 属性名辞書 [属性数+3][最大50文字]
+int Nrd = 0;
+int Nzk = 0;
 
-/* ルールプール
-   発見されたルールを格納（静的配列） */
-struct temporal_rule rule_pool[Nrulemax]; // ルールプール（試行ごと）
-struct cmrule compare_rules[Nrulemax];    // 比較用ルール
+int **data_buffer = NULL;
+double *x_buffer = NULL;
+char **timestamp_buffer = NULL;
+char **attribute_dictionary = NULL;
 
-/* グローバルルールプール
-   全試行を通じて発見された統合ルール */
-struct temporal_rule *global_rule_pool = NULL; // グローバルルールプール（動的）
-struct cmrule *global_compare_rules = NULL;    // グローバル比較用ルール
-int global_rule_count = 0;                     // グローバルルール数
-int global_high_support_count = 0;             // グローバル高サポート数
-int global_low_variance_count = 0;             // グローバル低分散数
+struct temporal_rule rule_pool[Nrulemax];
+struct cmrule compare_rules[Nrulemax];
 
-/* 時間遅延統計
-   適応的学習のための遅延使用履歴 */
-int delay_usage_history[HISTORY_GENERATIONS][MAX_TIME_DELAY + 1]; // 遅延使用履歴
-int delay_usage_count[MAX_TIME_DELAY + 1];                        // 遅延使用カウント
-int delay_tracking[MAX_TIME_DELAY + 1];                           // 遅延追跡（累積）
+struct temporal_rule *global_rule_pool = NULL;
+struct cmrule *global_compare_rules = NULL;
+int global_rule_count = 0;
+int global_high_support_count = 0;
+int global_low_variance_count = 0;
 
-/* GNPノード構造（動的割り当て）
-   各個体のネットワーク構造を表現 */
-int ***node_structure = NULL; // [個体数][ノード数][3(属性,接続,遅延)]
+int delay_usage_history[HISTORY_GENERATIONS][MAX_TIME_DELAY + 1];
+int delay_usage_count[MAX_TIME_DELAY + 1];
+int delay_tracking[MAX_TIME_DELAY + 1];
 
-/* 評価統計配列（動的割り当て）
-   ルール評価時の各種統計を保持 */
-int ***match_count = NULL;      // マッチカウント [個体][処理ノード][深さ]
-int ***negative_count = NULL;   // ネガティブカウント
-int ***evaluation_count = NULL; // 評価カウント
-int ***attribute_chain = NULL;  // 属性チェーン（評価中の属性列）
-int ***time_delay_chain = NULL; // 時間遅延チェーン
+int ***node_structure = NULL;
 
-/* 未来予測統計配列（4次元・動的割り当て）
-   [個体][処理ノード][深さ][FUTURE_SPAN] */
-double ****future_sum = NULL;         // 未来値の合計（t+1, t+2, ..., t+FUTURE_SPAN）※全体平均、後方互換性のため維持
-double ****future_sigma_array = NULL; // 未来値の二乗和（分散計算用）※全体標準偏差、後方互換性のため維持
+int ***match_count = NULL;
+int ***negative_count = NULL;
+int ***evaluation_count = NULL;
+int ***attribute_chain = NULL;
+int ***time_delay_chain = NULL;
 
-/* 【新規】方向性分離統計配列（4次元・動的割り当て）
-   [個体][処理ノード][深さ][FUTURE_SPAN] */
-double ****future_positive_sum = NULL; // X > 0 の合計（上昇時の合計）
-double ****future_negative_sum = NULL; // X < 0 の合計（下落時の合計）
-int ****future_positive_count = NULL;  // X > 0 の件数（上昇回数）
-int ****future_negative_count = NULL;  // X < 0 の件数（下落回数）
+double ****future_sum = NULL;
+double ****future_sigma_array = NULL;
 
-/* 【新規】象限集中度統計配列（4次元・動的割り当て）
-   [個体][処理ノード][深さ][4象限]
-   象限: 0=Q1(++), 1=Q2(-+), 2=Q3(--), 3=Q4(+-) */
-int ****quadrant_count = NULL; // 各象限のマッチ数
+double ****future_positive_sum = NULL;
+double ****future_negative_sum = NULL;
+int ****future_positive_count = NULL;
+int ****future_negative_count = NULL;
 
-/* 属性使用統計（動的割り当て）
-   適応的学習のための属性使用履歴 */
-int **attribute_usage_history = NULL; // 属性使用履歴
-int *attribute_usage_count = NULL;    // 属性使用カウント
-int *attribute_tracking = NULL;       // 属性追跡（累積）
+int ****quadrant_count = NULL;
 
-/* 適応度関連
-   進化計算での個体評価 */
-double fitness_value[Nkotai]; // 各個体の適応度値
-int fitness_ranking[Nkotai];  // 適応度ランキング
+int **attribute_usage_history = NULL;
+int *attribute_usage_count = NULL;
+int *attribute_tracking = NULL;
 
-/* 遺伝子プール（動的割り当て）
-   次世代の遺伝情報を保持 */
-int **gene_connection = NULL; // 接続遺伝子
-int **gene_attribute = NULL;  // 属性遺伝子
-int **gene_time_delay = NULL; // 時間遅延遺伝子
+double fitness_value[Nkotai];
+int fitness_ranking[Nkotai];
 
-/* グローバル統計カウンタ
-   全試行を通じた累積統計 */
-int total_rule_count = 0;   // 総ルール数
-int total_high_support = 0; // 総高サポートルール数
-int total_low_variance = 0; // 総低分散ルール数
+int **gene_connection = NULL;
+int **gene_attribute = NULL;
+int **gene_time_delay = NULL;
 
-/* その他の作業用配列 */
-int rules_per_trial[Ntry];               // 各試行のルール数
-int new_rule_marker[Nrulemax];           // 新規ルールマーカー
-int rules_by_attribute_count[MAX_DEPTH]; // 属性数別ルール数
-int *attribute_set = NULL;               // 属性セット
+int total_rule_count = 0;
+int total_high_support = 0;
+int total_low_variance = 0;
 
-/* データ列のインデックス
-   CSVのどの列がX値とタイムスタンプかを記録 */
-int x_column_index = -1; // X列のインデックス（現在時点の変化率）
-int t_column_index = -1; // T列（タイムスタンプ）のインデックス
+int rules_per_trial[Ntry];
+int new_rule_marker[Nrulemax];
+int rules_by_attribute_count[MAX_DEPTH];
+int *attribute_set = NULL;
 
-/* 統計情報 */
-int rules_by_min_attributes = 0; // 最小属性数を満たすルール数
+int x_column_index = -1;
+int t_column_index = -1;
 
-/* ================================================================================
-   関数プロトタイプ宣言
-   ================================================================================
-*/
+int rules_by_min_attributes = 0;
+
+/* 関数プロトタイプ宣言 */
 double get_future_value(int row_idx, int offset);
 
-/* ================================================================================
-   メモリ管理関数
+static void clear_3d_array_int(int ***arr, int dim1, int dim2, int dim3);
+static void clear_4d_array_int(int ****arr, int dim1, int dim2, int dim3, int dim4);
+static void clear_4d_array_double(double ****arr, int dim1, int dim2, int dim3, int dim4);
+static int is_valid_time_index(int current_time, int delay);
+static int is_valid_future_index(int current_time, int offset);
+static int determine_quadrant(double value1, double value2);
 
-   動的メモリの割り当てと解放を管理します。
-   ================================================================================
-*/
+static void accumulate_future_statistics(int individual, int k, int depth, int time_index);
+static void update_quadrant_statistics(int individual, int k, int depth, int time_index);
 
-/**
- * 未来予測統計用4次元配列を動的割り当て
- *
- * 【配列構造】
- * future_sum[個体][処理ノード][深さ][FUTURE_SPAN]
- * future_sigma_array[個体][処理ノード][深さ][FUTURE_SPAN]
- *
- * 各次元の意味:
- * - [個体]: GNP個体ID (0 ~ Nkotai-1)
- * - [処理ノード]: ルールの開始点ID (0 ~ Npn-1)
- * - [深さ]: ルールの属性数（深さ） (0 ~ MAX_DEPTH-1)
- * - [FUTURE_SPAN]: 未来予測の時点 (0=t+1, 1=t+2, 2=t+3, ...)
- *
- * この4次元構造により、FUTURE_SPANを変更するだけで
- * 任意の未来予測範囲に対応できます。
- */
+static int check_basic_conditions(double support, int num_attributes);
+static int check_variance_stability(double *future_sigma_array);
+static int check_pattern_concentration(int *quadrant_counts);
+static int check_mean_threshold(double *future_mean_array);
+double calculate_concentration_ratio(int *quadrant_counts);
+
+static double calculate_standard_deviation(double sum, double sum_of_squares, int count);
+
+static double calculate_significance_bonus(double mean_value);
+static double calculate_concentration_fitness_bonus(double concentration_ratio);
+
+/* ヘルパー関数実装 */
+
+static void clear_3d_array_int(int ***arr, int dim1, int dim2, int dim3)
+{
+    int i, j;
+    for (i = 0; i < dim1; i++)
+    {
+        for (j = 0; j < dim2; j++)
+        {
+            memset(arr[i][j], 0, dim3 * sizeof(int));
+        }
+    }
+}
+
+static void clear_4d_array_int(int ****arr, int dim1, int dim2, int dim3, int dim4)
+{
+    int i, j, k;
+    for (i = 0; i < dim1; i++)
+    {
+        for (j = 0; j < dim2; j++)
+        {
+            for (k = 0; k < dim3; k++)
+            {
+                memset(arr[i][j][k], 0, dim4 * sizeof(int));
+            }
+        }
+    }
+}
+
+static void clear_4d_array_double(double ****arr, int dim1, int dim2, int dim3, int dim4)
+{
+    int i, j, k;
+    for (i = 0; i < dim1; i++)
+    {
+        for (j = 0; j < dim2; j++)
+        {
+            for (k = 0; k < dim3; k++)
+            {
+                memset(arr[i][j][k], 0, dim4 * sizeof(double));
+            }
+        }
+    }
+}
+
+__attribute__((unused)) static int is_valid_time_index(int current_time, int delay)
+{
+    int data_index = current_time - delay;
+    return (data_index >= 0 && data_index < Nrd);
+}
+
+__attribute__((unused)) static int is_valid_future_index(int current_time, int offset)
+{
+    int future_index = current_time + offset;
+    return (future_index >= 0 && future_index < Nrd);
+}
+
+static int determine_quadrant(double value1, double value2)
+{
+    if (value1 > 0.0 && value2 > 0.0)
+        return 0; // Q1: 両方正
+    if (value1 < 0.0 && value2 > 0.0)
+        return 1; // Q2: t+1負, t+2正
+    if (value1 < 0.0 && value2 < 0.0)
+        return 2; // Q3: 両方負
+    if (value1 > 0.0 && value2 < 0.0)
+        return 3; // Q4: t+1正, t+2負
+    return -1;    // どちらかが0（無効）
+}
+
+static void accumulate_future_statistics(int individual, int k, int depth, int time_index)
+{
+    int offset;
+    double future_val;
+
+    for (offset = 0; offset < FUTURE_SPAN; offset++)
+    {
+        future_val = get_future_value(time_index, offset + 1);
+        if (isnan(future_val))
+            continue;
+
+        /* 既存の統計（後方互換性のため維持） */
+        future_sum[individual][k][depth][offset] += future_val;
+        future_sigma_array[individual][k][depth][offset] += future_val * future_val;
+
+        /* 方向性分離統計の累積 */
+        if (future_val > 0.0)
+        {
+            future_positive_sum[individual][k][depth][offset] += future_val;
+            future_positive_count[individual][k][depth][offset]++;
+        }
+        else if (future_val < 0.0)
+        {
+            future_negative_sum[individual][k][depth][offset] += future_val;
+            future_negative_count[individual][k][depth][offset]++;
+        }
+        /* future_val == 0.0 の場合は何もしない */
+    }
+}
+
+static void update_quadrant_statistics(int individual, int k, int depth, int time_index)
+{
+    double future_t1 = get_future_value(time_index, 1); // t+1
+    double future_t2 = get_future_value(time_index, 2); // t+2
+    int quadrant;
+
+    if (isnan(future_t1) || isnan(future_t2))
+        return;
+
+    quadrant = determine_quadrant(future_t1, future_t2);
+    if (quadrant >= 0)
+    {
+        quadrant_count[individual][k][depth][quadrant]++;
+    }
+}
+
+static int check_basic_conditions(double support, int num_attributes)
+{
+    if (support < Minsup)
+        return 0;
+    if (num_attributes < MIN_ATTRIBUTES)
+        return 0;
+    return 1;
+}
+
+static int check_variance_stability(double *future_sigma_array)
+{
+    int i;
+    for (i = 0; i < FUTURE_SPAN; i++)
+    {
+        if (future_sigma_array[i] > Maxsigx)
+            return 0;
+    }
+    return 1;
+}
+
+static int check_pattern_concentration(int *quadrant_counts)
+{
+    double concentration = calculate_concentration_ratio(quadrant_counts);
+    return (concentration >= MIN_CONCENTRATION);
+}
+
+static int check_mean_threshold(double *future_mean_array)
+{
+    int i;
+    double abs_mean;
+
+    for (i = 0; i < FUTURE_SPAN; i++)
+    {
+        abs_mean = fabs(future_mean_array[i]);
+        if (abs_mean < Minmean)
+            return 0;
+    }
+    return 1;
+}
+
+__attribute__((unused)) static double calculate_standard_deviation(double sum, double sum_of_squares, int count)
+{
+    double mean, variance;
+
+    if (count < 2)
+        return 0.0; // サンプル数不足
+
+    mean = sum / count;
+    variance = (sum_of_squares / count) - (mean * mean);
+
+    if (variance < 0.0)
+        variance = 0.0; // 数値誤差対策
+
+    return sqrt(variance);
+}
+
+static double calculate_significance_bonus(double mean_value)
+{
+    double abs_mean = fabs(mean_value);
+
+    if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_3)
+        return STATISTICAL_SIGNIFICANCE_BONUS_3;
+    if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_2)
+        return STATISTICAL_SIGNIFICANCE_BONUS_2;
+    if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
+        return STATISTICAL_SIGNIFICANCE_BONUS_1;
+
+    return 0.0;
+}
+
+static double calculate_concentration_fitness_bonus(double concentration_ratio)
+{
+    if (concentration_ratio >= CONCENTRATION_THRESHOLD_5)
+        return CONCENTRATION_BONUS_5;
+    if (concentration_ratio >= CONCENTRATION_THRESHOLD_4)
+        return CONCENTRATION_BONUS_4;
+    if (concentration_ratio >= CONCENTRATION_THRESHOLD_3)
+        return CONCENTRATION_BONUS_3;
+    if (concentration_ratio >= CONCENTRATION_THRESHOLD_2)
+        return CONCENTRATION_BONUS_2;
+    if (concentration_ratio >= CONCENTRATION_THRESHOLD_1)
+        return CONCENTRATION_BONUS_1;
+
+    return 0.0;
+}
+
 void allocate_future_arrays()
 {
     int i, j, k;
@@ -744,9 +746,6 @@ void allocate_future_arrays()
     }
 }
 
-/**
- * 未来予測統計用配列を0で初期化
- */
 void initialize_future_arrays()
 {
     int i, j, k, offset;
@@ -779,9 +778,6 @@ void initialize_future_arrays()
     }
 }
 
-/**
- * 未来予測統計用配列のメモリを解放
- */
 void free_future_arrays()
 {
     int i, j, k;
@@ -911,10 +907,6 @@ void free_future_arrays()
     }
 }
 
-/**
- * プログラムで使用する全ての動的メモリを割り当てる
- * CSVから読み込んだNrdとNzkの値に基づいてサイズを決定
- */
 void allocate_dynamic_memory()
 {
     int i, j;
@@ -1032,10 +1024,6 @@ void allocate_dynamic_memory()
     }
 }
 
-/**
- * プログラムで使用した全ての動的メモリを解放
- * メモリリークを防ぐため、確実に全メモリを解放
- */
 void free_dynamic_memory()
 {
     int i, j;
@@ -1164,19 +1152,6 @@ void free_dynamic_memory()
     }
 }
 
-/* ================================================================================
-   CSVヘッダー読み込み関数
-
-   CSVファイルの構造を解析し、データを読み込みます。
-   ヘッダー行から属性名を取得し、X列とT列を特定します。
-   ================================================================================
-*/
-
-/**
- * CSVファイルをヘッダー付きで読み込む
- * 最初の行をヘッダーとして解析し、属性名を辞書に格納
- * X列（予測対象）とT列（タイムスタンプ）の位置を特定
- */
 int load_csv_with_header()
 {
     FILE *file;
@@ -1207,7 +1182,8 @@ int load_csv_with_header()
         {
             // 最初の行（ヘッダー）からカラム数を数える
             char temp_line[MAX_LINE_LENGTH];
-            strcpy(temp_line, line);
+            strncpy(temp_line, line, MAX_LINE_LENGTH - 1);
+            temp_line[MAX_LINE_LENGTH - 1] = '\0'; // NULL終端を保証
             token = strtok(temp_line, ",\n");
             while (token != NULL)
             {
@@ -1263,7 +1239,8 @@ int load_csv_with_header()
             // その他の属性名を辞書に格納
             else
             {
-                strcpy(attribute_dictionary[attr_count], token);
+                strncpy(attribute_dictionary[attr_count], token, MAX_ATTR_NAME - 1);
+                attribute_dictionary[attr_count][MAX_ATTR_NAME - 1] = '\0'; // NULL終端を保証
                 attr_count++;
             }
 
@@ -1349,17 +1326,6 @@ int load_csv_with_header()
     return 0; // 成功
 }
 
-/* ================================================================================
-   初期化・設定系関数
-
-   出力ディレクトリの作成、ルールプールの初期化、各種統計の初期化を行います。
-   ================================================================================
-*/
-
-/**
- * 出力ディレクトリ構造を作成
- * プログラムの出力を整理するためのフォルダ階層を構築
- */
 void create_output_directories()
 {
     // ディレクトリを再帰的に作成（mkdir -p 相当）
@@ -1403,10 +1369,6 @@ void create_output_directories()
     }
 }
 
-/**
- * ルールプールを初期化
- * 全ルールの内容をゼロクリアし、初期状態にする
- */
 void initialize_rule_pool()
 {
     int i, j;
@@ -1442,10 +1404,6 @@ void initialize_rule_pool()
     rules_by_min_attributes = 0;
 }
 
-/**
- * 時間遅延統計を初期化
- * 適応的学習のための遅延使用履歴を初期化
- */
 void initialize_delay_statistics()
 {
     int i, j;
@@ -1463,10 +1421,6 @@ void initialize_delay_statistics()
     }
 }
 
-/**
- * 属性使用統計を初期化
- * 適応的学習のための属性使用履歴を初期化
- */
 void initialize_attribute_statistics()
 {
     int i, j;
@@ -1497,10 +1451,6 @@ void initialize_attribute_statistics()
     }
 }
 
-/**
- * グローバルカウンタを初期化
- * 全試行を通じた累積統計をリセット
- */
 void initialize_global_counters()
 {
     total_rule_count = 0;
@@ -1508,20 +1458,6 @@ void initialize_global_counters()
     total_low_variance = 0;
 }
 
-/* ================================================================================
-   データアクセス関数
-
-   時系列データへの安全なアクセスを提供します。
-   時間遅延を考慮した範囲チェックを行います。
-   ================================================================================
-*/
-
-/**
- * 時系列データの安全な範囲を取得
- * 時間遅延と予測スパンを考慮して、アクセス可能な範囲を計算
- * @param start_index 開始インデックスを格納する変数へのポインタ
- * @param end_index 終了インデックスを格納する変数へのポインタ
- */
 void get_safe_data_range(int *start_index, int *end_index)
 {
     if (TIMESERIES_MODE)
@@ -1540,14 +1476,6 @@ void get_safe_data_range(int *start_index, int *end_index)
     }
 }
 
-/**
- * 過去の属性値を取得
- * 指定した時点から指定した遅延分過去の属性値を返す
- * @param current_time 現在の時点インデックス
- * @param time_delay 時間遅延（0=現在, 1=t-1, 2=t-2, ...）
- * @param attribute_id 属性ID（0-indexed）
- * @return 属性値（0/1）、範囲外の場合は-1
- */
 int get_past_attribute_value(int current_time, int time_delay, int attribute_id)
 {
     // 過去のインデックスを計算
@@ -1562,12 +1490,6 @@ int get_past_attribute_value(int current_time, int time_delay, int attribute_id)
     return data_buffer[data_index][attribute_id];
 }
 
-/**
- * 将来の目標値を取得
- * 予測対象となる将来時点のX値を返す
- * @param current_time 現在の時点インデックス
- * @return t+PREDICTION_SPAN時点のX値
- */
 double get_future_target_value(int current_time)
 {
     // 将来のインデックスを計算
@@ -1582,12 +1504,6 @@ double get_future_target_value(int current_time)
     return x_buffer[future_index];
 }
 
-/**
- * 現在の実際の値を取得
- * ルール適用時点でのX値を返す
- * @param current_time 現在の時点インデックス
- * @return 現在時点のX値
- */
 double get_current_actual_value(int current_time)
 {
     // 範囲チェック
@@ -1599,18 +1515,6 @@ double get_current_actual_value(int current_time)
     return x_buffer[current_time];
 }
 
-/* ================================================================================
-   GNP個体管理系関数
-
-   遺伝的ネットワークプログラミングの個体を管理します。
-   個体の初期化、遺伝子のコピー、統計の初期化を行います。
-   ================================================================================
-*/
-
-/**
- * 初期個体群を生成
- * ランダムに遺伝子を生成して初期集団を作成
- */
 void create_initial_population()
 {
     int i, j;
@@ -1631,10 +1535,6 @@ void create_initial_population()
     }
 }
 
-/**
- * 遺伝子情報をノード構造にコピー
- * 進化操作後の遺伝子をGNPの実行形式に変換
- */
 void copy_genes_to_nodes()
 {
     int individual, node;
@@ -1653,76 +1553,34 @@ void copy_genes_to_nodes()
     }
 }
 
-/**
- * 個体統計を初期化
- * 各個体の評価統計をゼロクリアし、適応度を初期化
- */
 void initialize_individual_statistics()
 {
-    int individual, k, i;
+    int individual;
 
+    // 適応度配列を初期化
     for (individual = 0; individual < Nkotai; individual++)
     {
-        // 適応度を初期化（わずかに異なる値にして同順位を避ける）
         fitness_value[individual] = (double)individual * FITNESS_INIT_OFFSET;
         fitness_ranking[individual] = 0;
-
-        // 各処理ノードと深さの統計を初期化
-        for (k = 0; k < Npn; k++)
-        {
-            for (i = 0; i < MAX_DEPTH; i++)
-            {
-                // カウンタのクリア
-                match_count[individual][k][i] = 0;
-                attribute_chain[individual][k][i] = 0;
-                time_delay_chain[individual][k][i] = 0;
-                negative_count[individual][k][i] = 0;
-                evaluation_count[individual][k][i] = 0;
-
-                // 未来予測統計値のクリア（FUTURE_SPAN個）
-                for (int offset = 0; offset < FUTURE_SPAN; offset++)
-                {
-                    future_sum[individual][k][i][offset] = 0.0;
-                    future_sigma_array[individual][k][i][offset] = 0.0;
-
-                    /* 【新規】方向性分離統計のクリア */
-                    future_positive_sum[individual][k][i][offset] = 0.0;
-                    future_negative_sum[individual][k][i][offset] = 0.0;
-                    future_positive_count[individual][k][i][offset] = 0;
-                    future_negative_count[individual][k][i][offset] = 0;
-                }
-
-                /* 【新規】象限集中度統計のクリア */
-                for (int q = 0; q < 4; q++)
-                {
-                    quadrant_count[individual][k][i][q] = 0;
-                }
-            }
-        }
     }
+
+    // 3次元配列の一括初期化（Phase 1: Refactoring）
+    clear_3d_array_int(match_count, Nkotai, Npn, MAX_DEPTH);
+    clear_3d_array_int(attribute_chain, Nkotai, Npn, MAX_DEPTH);
+    clear_3d_array_int(time_delay_chain, Nkotai, Npn, MAX_DEPTH);
+    clear_3d_array_int(negative_count, Nkotai, Npn, MAX_DEPTH);
+    clear_3d_array_int(evaluation_count, Nkotai, Npn, MAX_DEPTH);
+
+    // 4次元配列の一括初期化（Phase 1: Refactoring）
+    clear_4d_array_double(future_sum, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
+    clear_4d_array_double(future_sigma_array, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
+    clear_4d_array_double(future_positive_sum, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
+    clear_4d_array_double(future_negative_sum, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
+    clear_4d_array_int(future_positive_count, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
+    clear_4d_array_int(future_negative_count, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
+    clear_4d_array_int(quadrant_count, Nkotai, Npn, MAX_DEPTH, 4);
 }
 
-/* ================================================================================
-   ルール評価系関数
-
-   GNP個体がデータを走査し、ルール候補を評価します。
-   時系列データの各時点でルール評価を実行します。
-   ================================================================================
-*/
-
-/**
- * 単一のデータインスタンスを評価
- *
- * 全個体が指定時点のデータに対してルールマッチングを実行します。
- *
- * 【アルゴリズム】
- * 1. 各個体の処理ノード（開始点）から探索を開始
- * 2. 判定ノードを辿り、属性値が1の場合のみマッチを継続
- * 3. マッチ中の場合、future_sum/future_sigma_arrayに未来値を累積
- * 4. evaluation_countは属性値を評価した回数（0/1/-1すべて）をカウント
- *
- * @param time_index 評価するデータの時点インデックス
- */
 void evaluate_single_instance(int time_index)
 {
     int current_node_id, depth, match_flag;
@@ -1783,63 +1641,9 @@ void evaluate_single_instance(int time_index)
                         // マッチ継続中の場合、統計を更新
                         match_count[individual][k][depth]++;
 
-                        /* 【新規】象限判定とカウント（研究目的：散布図の象限集中度を直接評価） */
-                        double future_t1 = get_future_value(time_index, 1); // t+1
-                        double future_t2 = get_future_value(time_index, 2); // t+2
-
-                        if (!isnan(future_t1) && !isnan(future_t2))
-                        {
-                            // 象限を判定してカウント
-                            int quadrant = -1;
-                            if (future_t1 > 0.0 && future_t2 > 0.0)
-                            {
-                                quadrant = 0; // Q1: 両方正
-                            }
-                            else if (future_t1 < 0.0 && future_t2 > 0.0)
-                            {
-                                quadrant = 1; // Q2: t+1負, t+2正
-                            }
-                            else if (future_t1 < 0.0 && future_t2 < 0.0)
-                            {
-                                quadrant = 2; // Q3: 両方負
-                            }
-                            else if (future_t1 > 0.0 && future_t2 < 0.0)
-                            {
-                                quadrant = 3; // Q4: t+1正, t+2負
-                            }
-
-                            if (quadrant >= 0)
-                            {
-                                quadrant_count[individual][k][depth][quadrant]++;
-                            }
-                        }
-
-                        // 未来予測値の累積（t+1, t+2, ..., t+FUTURE_SPAN）
-                        for (int offset = 0; offset < FUTURE_SPAN; offset++)
-                        {
-                            double future_val = get_future_value(time_index, offset + 1);
-                            if (!isnan(future_val))
-                            {
-                                /* 既存の統計（後方互換性のため維持） */
-                                future_sum[individual][k][depth][offset] += future_val;
-                                future_sigma_array[individual][k][depth][offset] += future_val * future_val;
-
-                                /* 【新規】方向性分離統計の累積 */
-                                if (future_val > 0.0)
-                                {
-                                    /* 上昇時（X > 0）*/
-                                    future_positive_sum[individual][k][depth][offset] += future_val;
-                                    future_positive_count[individual][k][depth][offset]++;
-                                }
-                                else if (future_val < 0.0)
-                                {
-                                    /* 下落時（X < 0）*/
-                                    future_negative_sum[individual][k][depth][offset] += future_val;
-                                    future_negative_count[individual][k][depth][offset]++;
-                                }
-                                /* future_val == 0.0 の場合は何もしない（カウントしない） */
-                            }
-                        }
+                        /* 統計更新（Phase 2: Refactoring） */
+                        update_quadrant_statistics(individual, k, depth, time_index);
+                        accumulate_future_statistics(individual, k, depth, time_index);
                     }
                     evaluation_count[individual][k][depth]++;
                     // 次の判定ノードへ
@@ -1875,10 +1679,6 @@ void evaluate_single_instance(int time_index)
     }
 }
 
-/**
- * 全個体を全データに対して評価
- * 安全な範囲内の全時点でルール評価を実行
- */
 void evaluate_all_individuals()
 {
     int safe_start, safe_end;
@@ -1894,22 +1694,6 @@ void evaluate_all_individuals()
     }
 }
 
-/**
- * ネガティブカウントを計算
- *
- * サポート値計算用の分母（評価可能なデータ数）を求めます。
- *
- * 【計算式の意味】
- * negative_count[i] = match_count[0] - evaluation_count[i] + match_count[i]
- *
- * 変形すると:
- *   = match_count[0] - (evaluation_count[i] - match_count[i])
- *   = 全データ数 - (評価したが不一致だった数)
- *   = 評価しなかったデータ数 + マッチしたデータ数
- *   = 深さiで評価可能なデータ数（有効範囲内）
- *
- * この値は support_rate = support_count / negative_count の分母として使用されます。
- */
 void calculate_negative_counts()
 {
     int individual, k, i;
@@ -1929,10 +1713,6 @@ void calculate_negative_counts()
     }
 }
 
-/**
- * ルール統計を計算
- * 累積値から平均と標準偏差を計算
- */
 void calculate_rule_statistics()
 {
     int individual, k, j;
@@ -2012,12 +1792,6 @@ void calculate_rule_statistics()
     }
 }
 
-/**
- * サポート値を計算
- * @param matched_count マッチした回数
- * @param negative_count_val ネガティブカウント（分母）
- * @return サポート値（0.0～1.0）
- */
 double calculate_support_value(int matched_count, int negative_count_val)
 {
     if (negative_count_val == 0)
@@ -2027,33 +1801,6 @@ double calculate_support_value(int matched_count, int negative_count_val)
     return (double)matched_count / (double)negative_count_val;
 }
 
-/* ================================================================================
-   時間パターン分析関数
-
-   ルールがマッチした時点の時間的特徴を分析します。
-   月別、四半期別、曜日別の統計を計算します。
-   ================================================================================
-*/
-
-/* ================================================================================
-   ルール抽出系関数
-
-   評価結果からルールを抽出し、品質チェックを行います。
-   ================================================================================
-*/
-
-/**
- * 象限集中度を計算
- *
- * 4象限 (Q1-Q4) のカウントから、最大象限の占有率を計算します。
- *
- * @param quadrant_counts 4象限のカウント配列 [Q1, Q2, Q3, Q4]
- *                        Q1: X(t+1)>0, X(t+2)>0
- *                        Q2: X(t+1)<=0, X(t+2)>0
- *                        Q3: X(t+1)<=0, X(t+2)<=0
- *                        Q4: X(t+1)>0, X(t+2)<=0
- * @return 集中度（0.0 ~ 1.0）。最大象限のカウント / 全カウント
- */
 double calculate_concentration_ratio(int *quadrant_counts)
 {
     int q1 = quadrant_counts[0];
@@ -2077,87 +1824,32 @@ double calculate_concentration_ratio(int *quadrant_counts)
     return (double)max_count / total;
 }
 
-/**
- * ルールの品質をチェック（4段階フィルタリング）
- *
- * チェック内容：
- * 1. 基本チェック: サポート率 >= Minsup AND 属性数 >= MIN_ATTRIBUTES
- * 2. 低分散チェック: すべての未来時点で σ <= Maxsigx
- * 3. 集中度チェック: 象限集中度 >= MIN_CONCENTRATION (40%)
- * 4. Mean閾値チェック: すべての未来時点で |mean| >= Minmean
- *
- * @param future_sigma_array 未来予測のσ配列 [FUTURE_SPAN]（t+1, t+2, ...）
- * @param future_mean_array  未来予測の平均値配列 [FUTURE_SPAN]（t+1, t+2, ...）
- * @param support            サポート率（matched_count / negative_count）
- * @param num_attributes     属性数
- * @param quadrant_counts    4象限のカウント配列 [Q1, Q2, Q3, Q4]
- * @return 1:品質基準を満たす, 0:満たさない
- */
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        double support, int num_attributes,
                        int *quadrant_counts)
 {
-    // ========================================
+    /* Phase 3: Refactoring - 段階的チェック関数を使用 */
+
     // Stage 1: 基本品質チェック
-    // ========================================
-    if (support < Minsup || num_attributes < MIN_ATTRIBUTES)
-    {
-        return 0; // 最低基準を満たさない
-    }
+    if (!check_basic_conditions(support, num_attributes))
+        return 0;
 
-    // ========================================
     // Stage 2: 予測安定性チェック（低分散）
-    // ========================================
-    // すべての未来時点（t+1, t+2, ...）で分散が閾値以下であること
-    for (int i = 0; i < FUTURE_SPAN; i++)
-    {
-        if (future_sigma_array[i] > Maxsigx)
-        {
-            return 0; // 予測が不安定（高分散）
-        }
-    }
+    if (!check_variance_stability(future_sigma_array))
+        return 0;
 
-    // ========================================
     // Stage 3: パターン偏りチェック（集中度）
-    // ========================================
-    // 象限集中度 >= MIN_CONCENTRATION (40%)
-    // ランダムパターン（25%前後）を排除
-    double concentration = calculate_concentration_ratio(quadrant_counts);
-    if (concentration < MIN_CONCENTRATION)
-    {
-        return 0; // 象限分布が均等（方向性が不明確）
-    }
+    if (!check_pattern_concentration(quadrant_counts))
+        return 0;
 
-    // ========================================
     // Stage 4: 統計的異常チェック（Mean閾値）
-    // ========================================
-    // 目的: 条件付き平均が0から遠く離れた希少パターンを発見
-    // 条件: すべての未来時点（t+1, t+2, ...）で |mean| >= Minmean
-    // 理由: 無条件分布 μ=0.0077% から |mean|>=0.5% は約1σ以上の偏差
+    if (!check_mean_threshold(future_mean_array))
+        return 0;
 
-    for (int i = 0; i < FUTURE_SPAN; i++)
-    {
-        double abs_mean = fabs(future_mean_array[i]); // 絶対値を計算
-
-        if (abs_mean < Minmean)
-        {
-            return 0; // 1つでも閾値未満なら失格
-        }
-    }
-    // すべての時点で |mean| >= Minmean を満たした
-
-    // ========================================
     // すべてのフィルタをパス
-    // ========================================
     return 1;
 }
 
-/**
- * ルールの重複をチェック
- * @param rule_candidate チェック対象のルール（属性配列）
- * @param rule_count 現在のルール数
- * @return 重複している場合1、重複していない場合0
- */
 int check_rule_duplication(int *rule_candidate, int rule_count)
 {
     int i, j;
@@ -2187,26 +1879,6 @@ int check_rule_duplication(int *rule_candidate, int rule_count)
 /* 前方宣言 */
 void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, int num_attrs);
 
-/**
- * 新規ルールを登録
- * ルールプールに新しいルールを追加し、各種統計を更新
- * @param state 試行状態
- * @param rule_candidate ルールの属性配列
- * @param time_delays 時間遅延配列
- * @param future_mean 未来予測値の平均配列（t+1, t+2, ..., t+FUTURE_SPAN）
- * @param future_sigma 未来予測値の標準偏差配列（t+1, t+2, ..., t+FUTURE_SPAN）
- * @param positive_mean 正の平均配列（X > 0、上昇時の平均）
- * @param negative_mean 負の平均配列（X < 0、下落時の平均）
- * @param positive_count 正のカウント配列（X > 0 の件数）
- * @param negative_count_dir 負のカウント配列（X < 0 の件数）
- * @param support_count サポートカウント
- * @param negative_count_val ネガティブカウント
- * @param support_value サポート値
- * @param num_attributes 属性数
- * @param individual 個体ID
- * @param k 処理ノードID
- * @param depth 深さ
- */
 void register_new_rule(struct trial_state *state, int *rule_candidate, int *time_delays,
                        double *future_mean, double *future_sigma,
                        int support_count, int negative_count_val, double support_value,
@@ -2282,14 +1954,6 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
     collect_matched_indices(idx, rule_candidate, time_delays, num_attributes);
 }
 
-/**
- * ルールにマッチした時点のインデックスを収集
- * 検証用にルールがマッチした全データ行のインデックスを保存
- * @param rule_idx ルールプール内のインデックス
- * @param rule_attrs ルールの属性配列
- * @param time_delays 時間遅延配列
- * @param num_attrs 属性数
- */
 void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, int num_attrs)
 {
     int safe_start, safe_end;
@@ -2342,14 +2006,6 @@ void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, in
     rule_pool[rule_idx].matched_count_vis = matched_count;
 }
 
-/**
- * ルールから遅延学習を更新
- * 良いルールで使われた遅延を強化学習
- * @param time_delays 時間遅延配列
- * @param num_attributes 属性数
- * @param high_support 高サポートフラグ
- * @param low_variance 低分散フラグ
- */
 void update_delay_learning_from_rule(int *time_delays, int num_attributes,
                                      int high_support, int low_variance)
 {
@@ -2371,12 +2027,6 @@ void update_delay_learning_from_rule(int *time_delays, int num_attributes,
     }
 }
 
-/**
- * 個体からルールを抽出
- * 1個体の全処理ノードからルールを抽出
- * @param state 試行状態
- * @param individual 個体ID
- */
 void extract_rules_from_individual(struct trial_state *state, int individual)
 {
     int rule_candidate_pre[MAX_DEPTH];   // 評価中の属性列（順序付き）
@@ -2555,28 +2205,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             // 集中度を計算（0.0 ~ 1.0）
                             double concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
 
-                            // 集中度に応じてボーナス付与（5段階の連続的報酬）
-                            if (concentration_ratio >= CONCENTRATION_THRESHOLD_5)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_5; // 60%+: 25000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_4)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_4; // 55%+: 15000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_3)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_3; // 50%+: 8000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_2)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_2; // 45%+: 2000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_1)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_1; // 40%+: 500点
-                            }
-                            // 40%未満はフィルタで除外されているのでここには到達しない
+                            // 集中度に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
+                            concentration_bonus = calculate_concentration_fitness_bonus(concentration_ratio);
                         }
 
                         /* 【新規】統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
@@ -2589,20 +2219,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // より強い方の絶対平均値を使用（どちらか一方が強ければOK）
                         double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
 
-                        // 統計的有意性に応じてボーナス付与
-                        if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_3)
-                        {
-                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_3; // |mean| >= 0.8%
-                        }
-                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_2)
-                        {
-                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_2; // |mean| >= 0.5%
-                        }
-                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
-                        {
-                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_1; // |mean| >= 0.3%
-                        }
-                        // |mean| < 0.3%はボーナスなし（ゼロ近傍パターン）
+                        // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
+                        significance_bonus = calculate_significance_bonus(max_abs_mean);
 
                         // 適応度を更新（新規ルールボーナス + 一貫性ボーナス + 象限集中度ボーナス + 統計的有意性ボーナス付き）
                         fitness_value[individual] +=
@@ -2710,28 +2328,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             // 集中度を計算（0.0 ~ 1.0）
                             concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
 
-                            // 集中度に応じてボーナス付与（5段階の連続的報酬）
-                            if (concentration_ratio >= CONCENTRATION_THRESHOLD_5)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_5; // 60%+: 25000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_4)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_4; // 55%+: 15000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_3)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_3; // 50%+: 8000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_2)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_2; // 45%+: 2000点
-                            }
-                            else if (concentration_ratio >= CONCENTRATION_THRESHOLD_1)
-                            {
-                                concentration_bonus = CONCENTRATION_BONUS_1; // 40%+: 500点
-                            }
-                            // 40%未満はフィルタで除外されているのでここには到達しない
+                            // 集中度に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
+                            concentration_bonus = calculate_concentration_fitness_bonus(concentration_ratio);
                         }
 
                         /* 【新規】統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
@@ -2744,20 +2342,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // より強い方の絶対平均値を使用（どちらか一方が強ければOK）
                         double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
 
-                        // 統計的有意性に応じてボーナス付与
-                        if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_3)
-                        {
-                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_3; // |mean| >= 0.8%
-                        }
-                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_2)
-                        {
-                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_2; // |mean| >= 0.5%
-                        }
-                        else if (max_abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
-                        {
-                            significance_bonus = STATISTICAL_SIGNIFICANCE_BONUS_1; // |mean| >= 0.3%
-                        }
-                        // |mean| < 0.3%はボーナスなし（ゼロ近傍パターン）
+                        // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
+                        significance_bonus = calculate_significance_bonus(max_abs_mean);
 
                         // 【デバッグ】最初の10個の高集中度ルールのみログ出力
                         static int debug_count = 0;
@@ -2795,11 +2381,6 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
     }
 }
 
-/**
- * 全個体からルールを抽出
- * 集団全体を走査してルールを収集
- * @param state 試行状態
- */
 void extract_rules_from_population(struct trial_state *state)
 {
     int individual;
@@ -2815,18 +2396,6 @@ void extract_rules_from_population(struct trial_state *state)
     }
 }
 
-/* ================================================================================
-   進化計算系関数
-
-   選択、交叉、突然変異などの遺伝的操作を実行します。
-   適応的な突然変異により、良い遅延や属性を優先的に選択します。
-   ================================================================================
-*/
-
-/**
- * 適応度ランキングを計算
- * 各個体の順位を決定（0が最良）
- */
 void calculate_fitness_rankings()
 {
     int i, j;
@@ -2846,10 +2415,6 @@ void calculate_fitness_rankings()
     }
 }
 
-/**
- * エリート選択を実行
- * 上位1/3の個体を3つずつコピーして次世代を構成
- */
 void perform_selection()
 {
     int i, j, copy, target_idx;
@@ -2875,10 +2440,6 @@ void perform_selection()
     }
 }
 
-/**
- * 交叉操作を実行
- * ペア間で遺伝子を交換
- */
 void perform_crossover()
 {
     int i, j, crossover_point, temp;
@@ -2909,10 +2470,6 @@ void perform_crossover()
     }
 }
 
-/**
- * 処理ノードの突然変異
- * 処理ノードの接続先をランダムに変更
- */
 void perform_mutation_processing_nodes()
 {
     int i, j;
@@ -2932,10 +2489,6 @@ void perform_mutation_processing_nodes()
     }
 }
 
-/**
- * 判定ノードの突然変異
- * 判定ノードの接続先をランダムに変更
- */
 void perform_mutation_judgment_nodes()
 {
     int i, j;
@@ -2955,15 +2508,6 @@ void perform_mutation_judgment_nodes()
     }
 }
 
-/**
- * 汎用ルーレット選択
- * 使用頻度配列に基づいてルーレット選択を行う
- * @param usage_array 使用頻度配列
- * @param array_size 配列サイズ
- * @param total_usage 総使用回数
- * @param default_value 履歴がない場合のデフォルト値（フォールバックにも使用）
- * @return 選択されたインデックス
- */
 static int roulette_wheel_selection(int *usage_array, int array_size, int total_usage, int default_value)
 {
     int random_value, accumulated, i;
@@ -2991,12 +2535,6 @@ static int roulette_wheel_selection(int *usage_array, int array_size, int total_
     return default_value;
 }
 
-/**
- * ルーレット選択による遅延選択
- * 使用頻度に比例した確率で遅延を選択
- * @param total_usage 総使用回数
- * @return 選択された遅延値
- */
 int roulette_wheel_selection_delay(int total_usage)
 {
     // 使用履歴がない場合はランダム
@@ -3009,12 +2547,6 @@ int roulette_wheel_selection_delay(int total_usage)
     return roulette_wheel_selection(delay_tracking, MAX_TIME_DELAY + 1, total_usage, MAX_TIME_DELAY);
 }
 
-/**
- * ルーレット選択による属性選択
- * 使用頻度に比例した確率で属性を選択
- * @param total_usage 総使用回数
- * @return 選択された属性ID
- */
 int roulette_wheel_selection_attribute(int total_usage)
 {
     // 使用履歴がない場合はランダム
@@ -3027,12 +2559,6 @@ int roulette_wheel_selection_attribute(int total_usage)
     return roulette_wheel_selection(attribute_tracking, Nzk, total_usage, Nzk - 1);
 }
 
-/**
- * 指定範囲の個体に対して遅延突然変異を適用
- * @param start_idx 開始個体インデックス
- * @param end_idx 終了個体インデックス
- * @param total_delay_usage 総遅延使用回数
- */
 static void apply_delay_mutation_to_range(int start_idx, int end_idx, int total_delay_usage)
 {
     int i, j;
@@ -3057,10 +2583,6 @@ static void apply_delay_mutation_to_range(int start_idx, int end_idx, int total_
     }
 }
 
-/**
- * 適応的遅延突然変異
- * 良い遅延を優先的に選択する突然変異
- */
 void perform_adaptive_delay_mutation()
 {
     int total_delay_usage = 0;
@@ -3079,10 +2601,6 @@ void perform_adaptive_delay_mutation()
     apply_delay_mutation_to_range(MUTATION_START_80, Nkotai, total_delay_usage);
 }
 
-/**
- * 適応的属性突然変異
- * 良い属性を優先的に選択する突然変異
- */
 void perform_adaptive_attribute_mutation()
 {
     int total_attribute_usage = 0;
@@ -3108,19 +2626,6 @@ void perform_adaptive_attribute_mutation()
     }
 }
 
-/* ================================================================================
-   統計・履歴管理系関数
-
-   適応的学習のための統計情報を管理します。
-   過去の成功パターンを記憶し、次世代に活用します。
-   ================================================================================
-*/
-
-/**
- * 遅延統計を更新
- * 世代間の遅延使用履歴を管理
- * @param generation 現在の世代番号
- */
 void update_delay_statistics(int generation)
 {
     int i, j;
@@ -3157,11 +2662,6 @@ void update_delay_statistics(int generation)
     }
 }
 
-/**
- * 属性統計を更新
- * 世代間の属性使用履歴を管理
- * @param generation 現在の世代番号
- */
 void update_attribute_statistics(int generation)
 {
     int i, j;
@@ -3208,18 +2708,6 @@ void update_attribute_statistics(int generation)
     }
 }
 
-/* ================================================================================
-   ファイル入出力系関数
-
-   ルール、統計情報、レポートをファイルに出力します。
-   ================================================================================
-*/
-
-/**
- * 試行用ファイルを作成
- * 各試行の出力ファイルを初期化
- * @param state 試行状態
- */
 void create_trial_files(struct trial_state *state)
 {
     FILE *file;
@@ -3262,11 +2750,6 @@ void create_trial_files(struct trial_state *state)
     }
 }
 
-/**
- * ルールをファイルに書き込み
- * @param state 試行状態
- * @param rule_index ルールのインデックス
- */
 void write_rule_to_file(struct trial_state *state, int rule_index)
 {
     FILE *file = fopen(state->filename_rule, "a");
@@ -3302,11 +2785,6 @@ void write_rule_to_file(struct trial_state *state, int rule_index)
     fclose(file);
 }
 
-/**
- * 進捗レポートを出力
- * @param state 試行状態
- * @param generation 現在の世代
- */
 void write_progress_report(struct trial_state *state, int generation)
 {
     FILE *file = fopen(state->filename_report, "a");
@@ -3357,11 +2835,6 @@ void write_progress_report(struct trial_state *state, int generation)
     }
 }
 
-/**
- * ローカル詳細ファイルに出力
- * 詳細情報を出力
- * @param state 試行状態
- */
 void write_local_output(struct trial_state *state)
 {
     FILE *file = fopen(state->filename_local, "a");
@@ -3415,11 +2888,6 @@ void write_local_output(struct trial_state *state)
     fclose(file);
 }
 
-/**
- * 現在の試行のルールをグローバルプールに統合
- * 重複するルールは除外し、新しいルールのみを追加
- * @param state 試行状態
- */
 void merge_trial_rules_to_global_pool(struct trial_state *state)
 {
     int i, j, k;
@@ -3492,11 +2960,6 @@ void merge_trial_rules_to_global_pool(struct trial_state *state)
 
 // calculate_and_write_extreme_scores() 関数は削除されました（不要な指標のため）
 
-/**
- * グローバルルールプールを出力
- * 全試行を通じたルールプールを2つの形式で出力
- * @param state 試行状態（引数としては使用しないが互換性のため保持）
- */
 void write_global_pool(struct trial_state *state)
 {
     FILE *file_a = fopen(pool_file_a, "w");
@@ -3613,12 +3076,6 @@ void write_global_pool(struct trial_state *state)
     }
 }
 
-/**
- * 未来の特定時点の変化率を取得
- * @param row_idx マッチした行のインデックス
- * @param offset 未来のオフセット（1=t+1, 2=t+2, 3=t+3, ...）
- * @return 未来時点のX値（範囲外の場合はNAN）
- */
 double get_future_value(int row_idx, int offset)
 {
     int future_idx = row_idx + offset;
@@ -3633,10 +3090,6 @@ double get_future_value(int row_idx, int offset)
     return x_buffer[future_idx];
 }
 
-/**
- * 個別ルールの検証ファイルを出力（CSV形式、全データ、タイムスタンプ付き）
- * @param rule_idx ルールのインデックス
- */
 void write_rule_verification_csv(int rule_idx)
 {
     char csv_file[512];
@@ -3723,9 +3176,6 @@ void write_rule_verification_csv(int rule_idx)
     fclose(file);
 }
 
-/**
- * 全ルールの検証ファイルを出力（CSV形式）
- */
 void write_verification_files()
 {
     printf("\n========== Writing Rule Verification Files ==========\n");
@@ -3741,11 +3191,6 @@ void write_verification_files()
     printf("====================================================\n\n");
 }
 
-/**
- * ドキュメント統計を出力
- * 試行ごとの統計情報を記録
- * @param state 試行状態
- */
 void write_document_stats(struct trial_state *state)
 {
     FILE *file = fopen(cont_file, "a");
@@ -3771,20 +3216,6 @@ void write_document_stats(struct trial_state *state)
     }
 }
 
-/* ================================================================================
-   ユーティリティ系関数
-
-   ファイル名生成、初期化、最終統計出力などの補助機能を提供します。
-   ================================================================================
-*/
-
-/**
- * ファイル名を生成
- * 試行IDから5桁のファイル名を生成
- * @param filename 生成したファイル名を格納するバッファ
- * @param prefix ファイル名のプレフィックス（IL/IA/IB）
- * @param trial_id 試行ID
- */
 void generate_filename(char *filename, const char *prefix, int trial_id)
 {
     int digits[FILENAME_DIGITS];
@@ -3798,18 +3229,14 @@ void generate_filename(char *filename, const char *prefix, int trial_id)
         temp /= 10;
     }
 
-    // ディレクトリとファイル名を結合
-    sprintf(filename, "%s/%s%d%d%d%d%d.txt",
-            // プレフィックスに応じてディレクトリを選択
-            (strcmp(prefix, "IL") == 0) ? output_dir_il : (strcmp(prefix, "IA") == 0) ? output_dir_ia
-                                                                                      : output_dir_ib,
-            prefix, digits[0], digits[1], digits[2], digits[3], digits[4]);
+    // ディレクトリとファイル名を結合（安全なsnprintf使用）
+    snprintf(filename, FILENAME_BUFFER_SIZE, "%s/%s%d%d%d%d%d.txt",
+             // プレフィックスに応じてディレクトリを選択
+             (strcmp(prefix, "IL") == 0) ? output_dir_il : (strcmp(prefix, "IA") == 0) ? output_dir_ia
+                                                                                       : output_dir_ib,
+             prefix, digits[0], digits[1], digits[2], digits[3], digits[4]);
 }
 
-/**
- * ドキュメントファイルを初期化
- * 統計情報ファイルのヘッダーを作成
- */
 void initialize_document_file()
 {
     FILE *file = fopen(cont_file, "w");
@@ -3826,10 +3253,6 @@ void initialize_document_file()
     }
 }
 
-/**
- * 最終統計を表示
- * プログラム終了時に全体の統計情報をコンソールに出力
- */
 void print_final_statistics()
 {
     int i;
@@ -3883,17 +3306,6 @@ void print_final_statistics()
     printf("========================================\n");
 }
 
-/* ================================================================================
-   パス設定関数
-
-   銘柄コードに基づいて、入力ファイルと出力ディレクトリのパスを設定します。
-   ================================================================================
-*/
-
-/**
- * 銘柄コードに基づいてファイルパスとディレクトリを設定
- * @param code 銘柄コード（例: "7203"）
- */
 void setup_paths_for_stock(const char *code)
 {
     // 銘柄コードをコピー
@@ -3939,18 +3351,6 @@ void setup_paths_for_stock(const char *code)
     printf("=========================\n\n");
 }
 
-/* ================================================================================
-   単一銘柄処理関数
-
-   指定された銘柄に対して全試行を実行します。
-   ================================================================================
-*/
-
-/**
- * 単一銘柄の分析を実行
- * @param code 銘柄コード
- * @return 成功時0、失敗時1
- */
 int process_single_stock(const char *code)
 {
     int trial, gen;
@@ -4158,21 +3558,6 @@ int process_single_stock(const char *code)
     return 0;
 }
 
-/* ================================================================================
-   メイン関数
-
-   プログラムのエントリポイント。
-   全体の処理フローを制御し、各試行での進化計算を実行します。
-   ================================================================================
-*/
-
-/**
- * プログラムのメイン関数
- * 時系列為替レート予測のためのGNMinerを実行
- * @param argc コマンドライン引数の数
- * @param argv コマンドライン引数の配列
- * @return 終了ステータス（0:正常終了）
- */
 int main(int argc, char *argv[])
 {
     clock_t batch_start_time, batch_end_time;
