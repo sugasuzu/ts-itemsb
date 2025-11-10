@@ -1,0 +1,24 @@
+# Top 10 High-Volatility Nikkei 225 Stocks
+# For GNP-based Rule Discovery
+# Generated: 2025-01-10
+# Source: nikkei225_volatility_ranking.csv
+
+# Format: stock_code,volatility_std,mean_x,description
+
+3436,6.62,0.12,Highest volatility stock
+4755,3.40,0.07,High volatility stock #2
+9984,3.34,0.06,SoftBank Group (high volatility)
+1808,3.29,0.07,High volatility stock #4
+5541,3.22,0.06,High volatility stock #5
+6976,3.13,0.05,High volatility stock #6
+5707,2.96,0.06,High volatility stock #7
+7003,2.94,0.03,High volatility stock #8
+6857,2.93,0.04,High volatility stock #9
+7202,2.93,0.06,High volatility stock #10
+
+# Notes:
+# - All stocks have daily data (2000-01-05 to 2020-12-30)
+# - 5,268 data points per stock (approximately 21 years)
+# - Attributes: 660 (approximately 220 stocks × 3 states)
+# - Volatility (σ) range: 2.93% - 6.62% (daily)
+# - Comparison: BTC hourly volatility = 0.51%
