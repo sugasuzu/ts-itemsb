@@ -33,15 +33,15 @@
 
 /* ルールマイニング制約 */
 #define Minsup 0.001
-#define Maxsigx 1.0
-#define MIN_ATTRIBUTES 2
-#define Minmean 0.1
-#define MIN_CONCENTRATION 0.40
+#define Maxsigx 1.0            // 1.0 → 0.5 (厳格化)
+#define MIN_ATTRIBUTES 2       // 1 → 2
+#define Minmean 0.1            // 0.1 → 0.2 (厳格化)
+#define MIN_CONCENTRATION 0.4 
 
 /* 実験パラメータ */
 #define Nrulemax 2002
 #define Nstart 1000
-#define Ntry 10
+#define Ntry 1
 
 /* GNPパラメータ */
 #define Generation 201
@@ -73,49 +73,35 @@
 #define MUTATION_START_40 40
 #define MUTATION_START_80 80
 
-/* 品質判定パラメータ */
+/* 品質判定パラメータ（バランス型に調整） */
 #define HIGH_SUPPORT_BONUS 0.02
 #define LOW_VARIANCE_REDUCTION 1.0
-#define FITNESS_SUPPORT_WEIGHT 3
-#define FITNESS_SIGMA_OFFSET 0.50
-#define FITNESS_NEW_RULE_BONUS 20
-#define FITNESS_ATTRIBUTE_WEIGHT 1
-#define FITNESS_SIGMA_WEIGHT 8
+#define FITNESS_SUPPORT_WEIGHT 400 // 3 → 400 (133倍: サポート率を重視)
+#define FITNESS_SIGMA_OFFSET 0.30  // 0.50 → 0.30 (分散評価を厳格化)
+#define FITNESS_NEW_RULE_BONUS 50  // 20 → 50 (新規発見の価値向上)
+#define FITNESS_ATTRIBUTE_WEIGHT 2 // 1 → 2 (属性数の重視)
+#define FITNESS_SIGMA_WEIGHT 200   // 8 → 200 (25倍: 分散を重視)
 
-/* 極端値ボーナス */
-#define EXTREME_MEAN_THRESHOLD_1 0.15
-#define EXTREME_MEAN_THRESHOLD_2 0.25
-#define EXTREME_MEAN_THRESHOLD_3 0.40
-#define EXTREME_MEAN_BONUS_1 30
-#define EXTREME_MEAN_BONUS_2 100
-#define EXTREME_MEAN_BONUS_3 200
-
-/* 一貫性ボーナス */
-#define CONSISTENCY_THRESHOLD_HIGH 0.8
-#define CONSISTENCY_THRESHOLD_LOW 0.2
-#define CONSISTENCY_BONUS_SINGLE 50
-#define CONSISTENCY_BONUS_DOUBLE 100
-
-/* 象限集中度ボーナス */
-#define CONCENTRATION_THRESHOLD_1 0.40
+/* 象限集中度ボーナス（バランス型: 約1/2.5に縮小） */
+#define CONCENTRATION_THRESHOLD_1 0.35 // 0.40 → 0.35 (MIN_CONCENTRATIONと一致)
 #define CONCENTRATION_THRESHOLD_2 0.45
 #define CONCENTRATION_THRESHOLD_3 0.50
 #define CONCENTRATION_THRESHOLD_4 0.55
 #define CONCENTRATION_THRESHOLD_5 0.60
 
-#define CONCENTRATION_BONUS_1 500
-#define CONCENTRATION_BONUS_2 2000
-#define CONCENTRATION_BONUS_3 8000
-#define CONCENTRATION_BONUS_4 15000
-#define CONCENTRATION_BONUS_5 25000
+#define CONCENTRATION_BONUS_1 200   // 500 → 200
+#define CONCENTRATION_BONUS_2 800   // 2000 → 800
+#define CONCENTRATION_BONUS_3 2500  // 8000 → 2500
+#define CONCENTRATION_BONUS_4 5000  // 15000 → 5000
+#define CONCENTRATION_BONUS_5 10000 // 25000 → 10000
 
-/* 統計的有意性ボーナス */
+/* 統計的有意性ボーナス（バランス型: 約1/2に縮小） */
 #define STATISTICAL_SIGNIFICANCE_THRESHOLD_1 0.3
 #define STATISTICAL_SIGNIFICANCE_THRESHOLD_2 0.5
 #define STATISTICAL_SIGNIFICANCE_THRESHOLD_3 0.8
-#define STATISTICAL_SIGNIFICANCE_BONUS_1 2000
-#define STATISTICAL_SIGNIFICANCE_BONUS_2 10000
-#define STATISTICAL_SIGNIFICANCE_BONUS_3 20000
+#define STATISTICAL_SIGNIFICANCE_BONUS_1 1000  // 2000 → 1000
+#define STATISTICAL_SIGNIFICANCE_BONUS_2 4000  // 10000 → 4000
+#define STATISTICAL_SIGNIFICANCE_BONUS_3 10000 // 20000 → 10000
 
 /* レポート間隔 */
 #define REPORT_INTERVAL 5
@@ -1826,7 +1812,7 @@ double calculate_concentration_ratio(int *quadrant_counts)
 
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        double support, int num_attributes,
-                       int *quadrant_counts)
+                       int *quadrant_counts, int matched_count)
 {
     /* Phase 3: Refactoring - 段階的チェック関数を使用 */
 
@@ -2098,9 +2084,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // ルールの品質チェック（サポート率、標準偏差、属性数、集中度、Mean閾値をチェック）
+            // ルールの品質チェック（サポート率、標準偏差、属性数、集中度、Mean閾値、最小マッチ数をチェック）
             if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
-                                   quadrant_count[individual][k][loop_j]))
+                                   quadrant_count[individual][k][loop_j], matched_count))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {

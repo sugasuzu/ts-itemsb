@@ -106,13 +106,13 @@ run: $(TARGET)
 	echo "=========================================="; \
 	echo ""
 
-# Test with cryptocurrency (BTC)
+# Test with cryptocurrency (DOGE)
 test: $(TARGET)
 	@echo "=========================================="
-	@echo "  Test Run: Bitcoin (BTC)"
+	@echo "  Test Run: Dogecoin (DOGE)"
 	@echo "=========================================="
 	@echo ""
-	./$(TARGET) BTC 10
+	./$(TARGET) DOGE 10
 	@echo ""
 	@echo "✓ Test complete"
 
@@ -188,7 +188,7 @@ help:
 	@echo "  make            - Build the executable"
 	@echo "  make run        - Run all 20 cryptocurrencies (DEFAULT)"
 	@echo "  make run-stocks - Run all 225 Nikkei stocks"
-	@echo "  make test       - Test with BTC"
+	@echo "  make test       - Test with DOGE"
 	@echo "  make run-stock  - Run specific stock/crypto"
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make clean-all  - Remove all output files"
@@ -197,7 +197,7 @@ help:
 	@echo "Examples:"
 	@echo "  make                           # Build"
 	@echo "  make run                       # All 20 cryptocurrencies"
-	@echo "  make test                      # Bitcoin (BTC) only"
+	@echo "  make test                      # Dogecoin (DOGE) only"
 	@echo "  make run-stock CODE=BTC        # Bitcoin"
 	@echo "  make run-stock CODE=ETH        # Ethereum"
 	@echo "  make run-stocks                # All 225 stocks"
