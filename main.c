@@ -32,9 +32,9 @@
 
 /* ルールマイニング制約 - 4象限MinMax方式 */
 #define Minsup 0.005           // 0.5 サポート率
-#define QUADRANT_THRESHOLD 1.0 // 1.0% 象限判定閾値（またぎ許容量）
-#define Maxsigx 0.5            // 最大標準偏差
-#define MIN_SUPPORT_COUNT 20   // 統計的信頼性（最低15回）
+#define QUADRANT_THRESHOLD 0.5 // 0.5% 象限判定閾値（またぎ許容量）
+#define Maxsigx 0.1            // 最大標準偏差
+#define MIN_SUPPORT_COUNT 20   // 統計的信頼性（最低20回）
 
 #define MIN_ATTRIBUTES 1 // 最小属性数 使わないから後で削除
 
@@ -48,7 +48,7 @@
 #define Ntry 1
 
 /* GNPパラメータ */
-#define Generation 201
+#define Generation 1001
 #define Nkotai 120
 #define Npn 10
 #define Njg 100
