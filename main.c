@@ -10,8 +10,7 @@
 #define TIMESERIES_MODE 1
 #define MAX_TIME_DELAY 2
 #define MIN_TIME_DELAY 0
-#define PREDICTION_SPAN 1
-#define FUTURE_SPAN 2
+#define FUTURE_SPAN 2 // 未来予測スパン: t+1, t+2 の2時点
 #define ADAPTIVE_DELAY 1
 
 /* ディレクトリ構造 */
@@ -1378,7 +1377,7 @@ void create_output_directories()
         printf("Single variable X with temporal analysis\n");
         printf("Adaptive delay range: t-%d to t-%d\n", MIN_TIME_DELAY, MAX_TIME_DELAY);
         printf("Adaptive learning: %s\n", ADAPTIVE_DELAY ? "Enabled" : "Disabled");
-        printf("Prediction span: t+%d\n", PREDICTION_SPAN);
+        printf("Future span: t+1 to t+%d\n", FUTURE_SPAN);
         printf("Minimum attributes: %d\n", MIN_ATTRIBUTES);
         printf("=========================================\n\n");
     }
@@ -1478,10 +1477,10 @@ void get_safe_data_range(int *start_index, int *end_index)
     if (TIMESERIES_MODE)
     {
         // 時系列モード：過去参照と未来予測の両方を考慮
-        // データ期間を確認し、t-4以降から開始するインデックスを設定
-        // (MAX_TIME_DELAY=4のため、インデックス4から有効)
+        // 開始: MAX_TIME_DELAY 以降（過去参照が可能な範囲）
+        // 終了: Nrd - FUTURE_SPAN 未満（t+1, t+2 が両方存在する範囲）
         *start_index = MAX_TIME_DELAY;
-        *end_index = Nrd - PREDICTION_SPAN; // t+1が存在する範囲まで
+        *end_index = Nrd - FUTURE_SPAN; // t+1 と t+2 が両方存在する範囲まで
     }
     else
     {
@@ -1507,8 +1506,9 @@ int get_past_attribute_value(int current_time, int time_delay, int attribute_id)
 
 double get_future_target_value(int current_time)
 {
-    // 将来のインデックスを計算
-    int future_index = current_time + PREDICTION_SPAN;
+    // 将来のインデックスを計算（t+1）
+    // 注: この関数は現在未使用。get_future_value() を使用すること。
+    int future_index = current_time + 1;
 
     // 範囲チェック
     if (future_index >= Nrd)
@@ -1667,23 +1667,6 @@ void evaluate_single_instance(int time_index)
                 else if (attr_value == 0)
                 {
                     // 属性値が0：スキップ側へ進む（処理ノードに戻る）
-                    //
-                    // 【重要】この evaluation_count++ がサポート率計算の正確性に不可欠
-                    //
-                    // support_rate = match_count / evaluation_count
-                    //
-                    // evaluation_count = ルール評価が行われた回数（マッチ + 不一致の合計）
-                    //
-                    // もし evaluation_count++ がないと、不一致ケースがカウントされず、
-                    // サポート率が不正確に高く計算されてしまう。
-                    //
-                    // 例: 100回評価して10回マッチ
-                    //   正: support_rate = 10/100 = 0.10 (10%)
-                    //   誤: support_rate = 10/10 = 1.00 (100%) ← 不一致を数えないと過大評価
-                    //
-                    // 修正履歴:
-                    //   2025-11-02 - evaluation_count追加
-                    //   2025-11-11 - コメントを正しいサポート率の説明に更新
                     evaluation_count[individual][k][depth]++;
                     current_node_id = k;
                 }
@@ -1725,18 +1708,7 @@ void calculate_negative_counts()
         {
             for (i = 0; i < Nmx; i++)
             {
-                // 正しいサポート率の計算:
-                // support_rate = match_count / evaluation_count
-                //
-                // evaluation_count = ルール評価が行われた回数（過去の属性が揃った回数）
-                //
-                // 注意: オリジナルコード (original_code.c line 443) では
-                //   nva = kazu[0] - mva + kazu
-                // という式を使っていたが、これは論理的に不正確。
-                // 標準的なサポート率の定義に従い、evaluation_count を直接使用する。
-                //
-                // 修正履歴: 2025-11-11 - 論理的に正しい式に修正
-                negative_count[individual][k][i] = evaluation_count[individual][k][i];
+                negative_count[individual][k][i] = match_count[individual][k][0];
             }
         }
     }
@@ -3185,7 +3157,7 @@ void print_final_statistics()
     printf("  Mode: Temporal Pattern Analysis\n");
     printf("  Adaptive learning: %s\n", ADAPTIVE_DELAY ? "Enabled" : "Disabled");
     printf("  Delay range: t-%d to t-%d\n", MIN_TIME_DELAY, MAX_TIME_DELAY);
-    printf("  Prediction span: t+%d\n", PREDICTION_SPAN);
+    printf("  Future span: t+1 to t+%d\n", FUTURE_SPAN);
     printf("  Minimum attributes: %d\n", MIN_ATTRIBUTES);
     printf("========================================\n");
 
