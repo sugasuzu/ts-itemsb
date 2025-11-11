@@ -82,19 +82,19 @@ run: $(TARGET)
 	echo "=========================================="; \
 	echo ""
 
-# Test with USD/JPY
+# Test with GBPJPY
 test: $(TARGET)
 	@echo "=========================================="
-	@echo "  Test Run: USD/JPY"
+	@echo "  Test Run: GBPJPY"
 	@echo "  Very Tight Cluster Settings"
 	@echo "=========================================="
 	@echo ""
-	./$(TARGET) USDJPY 1
+	./$(TARGET)   GBPJPY 1
 	@echo ""
 	@echo "✓ Test complete"
 	@echo ""
 	@echo "Check results:"
-	@echo "  cat 1-deta-enginnering/forex_data_daily/output/USDJPY/pool/zrp01a.txt"
+	@echo "  cat 1-deta-enginnering/forex_data_daily/output/  GBPJPY/pool/zrp01a.txt"
 
 # Run specific forex pair
 # Usage: make run-pair PAIR=USDJPY
