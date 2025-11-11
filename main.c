@@ -30,18 +30,21 @@
 #define CONT_FILE "output/doc/zrd01.txt"
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
-/* ルールマイニング制約 - Tight Cluster 設定（バランス調整版） */
-#define Minsup 0.001          // 0.1%サポート率（希少パターンOK）
-#define Maxsigx 0.5           // 低分散（密集した小集団）
-#define MIN_ATTRIBUTES 1      // 最小属性数
-#define Minmean 0.2           // 明確な方向性
-#define MIN_CONCENTRATION 0.3 // 象限集中（50%以上）
-#define MIN_SUPPORT_COUNT 15  // 統計的信頼性（最低15回）
+/* ルールマイニング制約 - 4象限MinMax方式 */
+#define Minsup 0.0000005            // 0.5%サポート率
+#define QUADRANT_THRESHOLD 0.05 // 0.05% 象限判定閾値
+#define Maxsigx 0.5           // 0.1% 最大標準偏差（tight cluster）
+#define MIN_ATTRIBUTES 1        // 最小属性数
+#define MIN_SUPPORT_COUNT 1   // 統計的信頼性（最低20回）
+
+/* ルール品質フラグ設定の係数 */
+#define HIGH_SUPPORT_MULTIPLIER 2.0 // 高サポートフラグの判定係数（Minsup * 2.0）
+#define LOW_VARIANCE_MULTIPLIER 0.5 // 低分散フラグの判定係数（Maxsigx * 0.5）
 
 /* 実験パラメータ */
 #define Nrulemax 2002
 #define Nstart 1000
-#define Ntry 10
+#define Ntry 1
 
 /* GNPパラメータ */
 #define Generation 201
@@ -73,43 +76,11 @@
 #define MUTATION_START_40 40
 #define MUTATION_START_80 80
 
-/* 品質判定パラメータ（Tight Cluster Optimization: 小集団・高密集度優先） */
-#define HIGH_SUPPORT_BONUS 0.02
-#define LOW_VARIANCE_REDUCTION 1.0
-#define FITNESS_SUPPORT_WEIGHT 50 // 400 → 50 (サポート率の影響を削減)
-#define FITNESS_SIGMA_OFFSET 0.10 // 0.30 → 0.10 (分散評価を敏感に)
-#define FITNESS_NEW_RULE_BONUS 50
-#define FITNESS_ATTRIBUTE_WEIGHT 2
-#define FITNESS_SIGMA_WEIGHT 800 // 200 → 800 (分散を最重視)
-
-/* 象限集中度ボーナス（バランス調整） */
-#define CONCENTRATION_THRESHOLD_1 0.35
-#define CONCENTRATION_THRESHOLD_2 0.45
-#define CONCENTRATION_THRESHOLD_3 0.50
-#define CONCENTRATION_THRESHOLD_4 0.55
-#define CONCENTRATION_THRESHOLD_5 0.60
-
-#define CONCENTRATION_BONUS_1 150  // 200 → 150
-#define CONCENTRATION_BONUS_2 600  // 800 → 600
-#define CONCENTRATION_BONUS_3 1500 // 2500 → 1500
-#define CONCENTRATION_BONUS_4 3000 // 5000 → 3000
-#define CONCENTRATION_BONUS_5 6000 // 10000 → 6000
-
-/* 統計的有意性ボーナス（バランス調整） */
-#define STATISTICAL_SIGNIFICANCE_THRESHOLD_1 0.3
-#define STATISTICAL_SIGNIFICANCE_THRESHOLD_2 0.5
-#define STATISTICAL_SIGNIFICANCE_THRESHOLD_3 0.8
-#define STATISTICAL_SIGNIFICANCE_BONUS_1 800  // 1000 → 800
-#define STATISTICAL_SIGNIFICANCE_BONUS_2 2500 // 4000 → 2500
-#define STATISTICAL_SIGNIFICANCE_BONUS_3 6000 // 10000 → 6000
-
-/* 小集団ボーナス（新規追加: 希少パターンの優遇） */
-#define SMALL_CLUSTER_THRESHOLD_1 0.0020
-#define SMALL_CLUSTER_THRESHOLD_2 0.0015
-#define SMALL_CLUSTER_THRESHOLD_3 0.0010
-#define SMALL_CLUSTER_BONUS_1 300
-#define SMALL_CLUSTER_BONUS_2 600
-#define SMALL_CLUSTER_BONUS_3 1000
+/* 適応度計算パラメータ（original code準拠: シンプルな4成分） */
+#define FITNESS_SUPPORT_WEIGHT 10
+#define FITNESS_SIGMA_WEIGHT 2
+#define FITNESS_SIGMA_OFFSET 0.001
+#define FITNESS_NEW_RULE_BONUS 20
 
 /* レポート間隔 */
 #define REPORT_INTERVAL 5
@@ -211,6 +182,8 @@ int ***time_delay_chain = NULL;
 
 double ****future_sum = NULL;
 double ****future_sigma_array = NULL;
+double ****future_min = NULL;
+double ****future_max = NULL;
 
 double ****future_positive_sum = NULL;
 double ****future_negative_sum = NULL;
@@ -252,22 +225,19 @@ static void clear_4d_array_int(int ****arr, int dim1, int dim2, int dim3, int di
 static void clear_4d_array_double(double ****arr, int dim1, int dim2, int dim3, int dim4);
 static int is_valid_time_index(int current_time, int delay);
 static int is_valid_future_index(int current_time, int offset);
-static int determine_quadrant(double value1, double value2);
+static int determine_quadrant_simple(double value1, double value2);
 
 static void accumulate_future_statistics(int individual, int k, int depth, int time_index);
 static void update_quadrant_statistics(int individual, int k, int depth, int time_index);
 
-static int check_basic_conditions(double support, int num_attributes);
-static int check_variance_stability(double *future_sigma_array);
-static int check_pattern_concentration(int *quadrant_counts);
-static int check_mean_threshold(double *future_mean_array);
 double calculate_concentration_ratio(int *quadrant_counts);
 
 static double calculate_standard_deviation(double sum, double sum_of_squares, int count);
 
-static double calculate_significance_bonus(double mean_value);
-static double calculate_small_cluster_bonus(double support);
-static double calculate_concentration_fitness_bonus(double concentration_ratio);
+/* MinMax象限判定関数（v2.0） */
+static double calculate_minimum_return(int *matched_indices, int match_count, int span_offset);
+static double calculate_maximum_return(int *matched_indices, int match_count, int span_offset);
+static int determine_quadrant(double min_t1, double max_t1, double min_t2, double max_t2);
 
 /* ヘルパー関数実装 */
 
@@ -325,7 +295,7 @@ __attribute__((unused)) static int is_valid_future_index(int current_time, int o
     return (future_index >= 0 && future_index < Nrd);
 }
 
-static int determine_quadrant(double value1, double value2)
+static int determine_quadrant_simple(double value1, double value2)
 {
     if (value1 > 0.0 && value2 > 0.0)
         return 0; // Q1: 両方正
@@ -353,6 +323,16 @@ static void accumulate_future_statistics(int individual, int k, int depth, int t
         future_sum[individual][k][depth][offset] += future_val;
         future_sigma_array[individual][k][depth][offset] += future_val * future_val;
 
+        /* Min/Max の更新（象限判定用） */
+        if (future_val < future_min[individual][k][depth][offset])
+        {
+            future_min[individual][k][depth][offset] = future_val;
+        }
+        if (future_val > future_max[individual][k][depth][offset])
+        {
+            future_max[individual][k][depth][offset] = future_val;
+        }
+
         /* 方向性分離統計の累積 */
         if (future_val > 0.0)
         {
@@ -377,58 +357,11 @@ static void update_quadrant_statistics(int individual, int k, int depth, int tim
     if (isnan(future_t1) || isnan(future_t2))
         return;
 
-    quadrant = determine_quadrant(future_t1, future_t2);
+    quadrant = determine_quadrant_simple(future_t1, future_t2);
     if (quadrant >= 0)
     {
         quadrant_count[individual][k][depth][quadrant]++;
     }
-}
-
-static int check_basic_conditions(double support, int num_attributes)
-{
-    if (support < Minsup)
-        return 0;
-    if (num_attributes < MIN_ATTRIBUTES)
-        return 0;
-    return 1;
-}
-
-static int check_support_count(int matched_count)
-{
-    if (matched_count < MIN_SUPPORT_COUNT)
-        return 0;
-    return 1;
-}
-
-static int check_variance_stability(double *future_sigma_array)
-{
-    int i;
-    for (i = 0; i < FUTURE_SPAN; i++)
-    {
-        if (future_sigma_array[i] > Maxsigx)
-            return 0;
-    }
-    return 1;
-}
-
-static int check_pattern_concentration(int *quadrant_counts)
-{
-    double concentration = calculate_concentration_ratio(quadrant_counts);
-    return (concentration >= MIN_CONCENTRATION);
-}
-
-static int check_mean_threshold(double *future_mean_array)
-{
-    int i;
-    double abs_mean;
-
-    for (i = 0; i < FUTURE_SPAN; i++)
-    {
-        abs_mean = fabs(future_mean_array[i]);
-        if (abs_mean < Minmean)
-            return 0;
-    }
-    return 1;
 }
 
 __attribute__((unused)) static double calculate_standard_deviation(double sum, double sum_of_squares, int count)
@@ -447,46 +380,56 @@ __attribute__((unused)) static double calculate_standard_deviation(double sum, d
     return sqrt(variance);
 }
 
-static double calculate_significance_bonus(double mean_value)
+/* MinMax象限判定関数実装（v2.0） */
+
+__attribute__((unused)) static double calculate_minimum_return(int *matched_indices, int match_count, int span_offset)
 {
-    double abs_mean = fabs(mean_value);
+    double min_val = INFINITY;
+    int i;
+    double future_val;
 
-    if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_3)
-        return STATISTICAL_SIGNIFICANCE_BONUS_3;
-    if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_2)
-        return STATISTICAL_SIGNIFICANCE_BONUS_2;
-    if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
-        return STATISTICAL_SIGNIFICANCE_BONUS_1;
+    for (i = 0; i < match_count; i++)
+    {
+        future_val = get_future_value(matched_indices[i], span_offset);
+        if (!isnan(future_val) && future_val < min_val)
+        {
+            min_val = future_val;
+        }
+    }
 
-    return 0.0;
+    return (min_val == INFINITY) ? 0.0 : min_val;
 }
 
-static double calculate_small_cluster_bonus(double support)
+__attribute__((unused)) static double calculate_maximum_return(int *matched_indices, int match_count, int span_offset)
 {
-    if (support <= SMALL_CLUSTER_THRESHOLD_3)
-        return SMALL_CLUSTER_BONUS_3;
-    if (support <= SMALL_CLUSTER_THRESHOLD_2)
-        return SMALL_CLUSTER_BONUS_2;
-    if (support <= SMALL_CLUSTER_THRESHOLD_1)
-        return SMALL_CLUSTER_BONUS_1;
+    double max_val = -INFINITY;
+    int i;
+    double future_val;
 
-    return 0.0;
+    for (i = 0; i < match_count; i++)
+    {
+        future_val = get_future_value(matched_indices[i], span_offset);
+        if (!isnan(future_val) && future_val > max_val)
+        {
+            max_val = future_val;
+        }
+    }
+
+    return (max_val == -INFINITY) ? 0.0 : max_val;
 }
 
-static double calculate_concentration_fitness_bonus(double concentration_ratio)
+static int determine_quadrant(double min_t1, double max_t1, double min_t2, double max_t2)
 {
-    if (concentration_ratio >= CONCENTRATION_THRESHOLD_5)
-        return CONCENTRATION_BONUS_5;
-    if (concentration_ratio >= CONCENTRATION_THRESHOLD_4)
-        return CONCENTRATION_BONUS_4;
-    if (concentration_ratio >= CONCENTRATION_THRESHOLD_3)
-        return CONCENTRATION_BONUS_3;
-    if (concentration_ratio >= CONCENTRATION_THRESHOLD_2)
-        return CONCENTRATION_BONUS_2;
-    if (concentration_ratio >= CONCENTRATION_THRESHOLD_1)
-        return CONCENTRATION_BONUS_1;
+    if (min_t1 >= QUADRANT_THRESHOLD && min_t2 >= QUADRANT_THRESHOLD)
+        return 1; // Q1: 両方正 (++)
+    if (max_t1 <= -QUADRANT_THRESHOLD && min_t2 >= QUADRANT_THRESHOLD)
+        return 2; // Q2: t+1負, t+2正 (-+)
+    if (max_t1 <= -QUADRANT_THRESHOLD && max_t2 <= -QUADRANT_THRESHOLD)
+        return 3; // Q3: 両方負 (--)
+    if (min_t1 >= QUADRANT_THRESHOLD && max_t2 <= -QUADRANT_THRESHOLD)
+        return 4; // Q4: t+1正, t+2負 (+-)
 
-    return 0.0;
+    return 0; // 不一致（複数象限にまたがる）
 }
 
 void allocate_future_arrays()
@@ -564,6 +507,92 @@ void allocate_future_arrays()
                 {
                     fprintf(stderr, "ERROR: Failed to allocate future_sigma_array (dimension 4)\n");
                     exit(1);
+                }
+            }
+        }
+    }
+
+    /* future_min配列の割り当て（MinMax象限判定用） */
+    future_min = (double ****)malloc(Nkotai * sizeof(double ***));
+    if (future_min == NULL)
+    {
+        fprintf(stderr, "ERROR: Failed to allocate future_min (dimension 1)\n");
+        exit(1);
+    }
+
+    for (i = 0; i < Nkotai; i++)
+    {
+        future_min[i] = (double ***)malloc(Npn * sizeof(double **));
+        if (future_min[i] == NULL)
+        {
+            fprintf(stderr, "ERROR: Failed to allocate future_min (dimension 2)\n");
+            exit(1);
+        }
+
+        for (j = 0; j < Npn; j++)
+        {
+            future_min[i][j] = (double **)malloc(MAX_DEPTH * sizeof(double *));
+            if (future_min[i][j] == NULL)
+            {
+                fprintf(stderr, "ERROR: Failed to allocate future_min (dimension 3)\n");
+                exit(1);
+            }
+
+            for (k = 0; k < MAX_DEPTH; k++)
+            {
+                future_min[i][j][k] = (double *)malloc(FUTURE_SPAN * sizeof(double));
+                if (future_min[i][j][k] == NULL)
+                {
+                    fprintf(stderr, "ERROR: Failed to allocate future_min (dimension 4)\n");
+                    exit(1);
+                }
+                // Initialize with INFINITY
+                for (int s = 0; s < FUTURE_SPAN; s++)
+                {
+                    future_min[i][j][k][s] = INFINITY;
+                }
+            }
+        }
+    }
+
+    /* future_max配列の割り当て（MinMax象限判定用） */
+    future_max = (double ****)malloc(Nkotai * sizeof(double ***));
+    if (future_max == NULL)
+    {
+        fprintf(stderr, "ERROR: Failed to allocate future_max (dimension 1)\n");
+        exit(1);
+    }
+
+    for (i = 0; i < Nkotai; i++)
+    {
+        future_max[i] = (double ***)malloc(Npn * sizeof(double **));
+        if (future_max[i] == NULL)
+        {
+            fprintf(stderr, "ERROR: Failed to allocate future_max (dimension 2)\n");
+            exit(1);
+        }
+
+        for (j = 0; j < Npn; j++)
+        {
+            future_max[i][j] = (double **)malloc(MAX_DEPTH * sizeof(double *));
+            if (future_max[i][j] == NULL)
+            {
+                fprintf(stderr, "ERROR: Failed to allocate future_max (dimension 3)\n");
+                exit(1);
+            }
+
+            for (k = 0; k < MAX_DEPTH; k++)
+            {
+                future_max[i][j][k] = (double *)malloc(FUTURE_SPAN * sizeof(double));
+                if (future_max[i][j][k] == NULL)
+                {
+                    fprintf(stderr, "ERROR: Failed to allocate future_max (dimension 4)\n");
+                    exit(1);
+                }
+                // Initialize with -INFINITY
+                for (int s = 0; s < FUTURE_SPAN; s++)
+                {
+                    future_max[i][j][k][s] = -INFINITY;
                 }
             }
         }
@@ -1827,29 +1856,40 @@ double calculate_concentration_ratio(int *quadrant_counts)
 
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        double support, int num_attributes,
-                       int *quadrant_counts, int matched_count)
+                       double *future_min_array, double *future_max_array, int matched_count)
 {
-    /* Phase 3: Refactoring - 段階的チェック関数を使用 */
+    double min_t1, max_t1, min_t2, max_t2;
+    int quadrant;
+    int i;
 
-    // Stage 1: 基本品質チェック
-    if (!check_basic_conditions(support, num_attributes))
+    /* Stage 1: サポート率チェック */
+    if (support < Minsup)
         return 0;
 
-    // Stage 1.5: サポート数チェック（Very Tight Cluster用）
-    if (!check_support_count(matched_count))
+    if (num_attributes < MIN_ATTRIBUTES)
         return 0;
 
-    // Stage 2: 予測安定性チェック（低分散）
-    if (!check_variance_stability(future_sigma_array))
+    if (matched_count < MIN_SUPPORT_COUNT)
         return 0;
 
-    // Stage 3: パターン偏りチェック（集中度）
-    if (!check_pattern_concentration(quadrant_counts))
-        return 0;
+    /* Stage 2: 象限判定（MinMaxベース） */
+    // すでに計算済みのMin/Maxを使用
+    min_t1 = future_min_array[0]; // t+1 (offset=0)
+    max_t1 = future_max_array[0];
+    min_t2 = future_min_array[1]; // t+2 (offset=1)
+    max_t2 = future_max_array[1];
 
-    // Stage 4: 統計的異常チェック（Mean閾値）
-    if (!check_mean_threshold(future_mean_array))
-        return 0;
+    // 象限判定
+    quadrant = determine_quadrant(min_t1, max_t1, min_t2, max_t2);
+    if (quadrant == 0)
+        return 0; // 複数象限にまたがる → 除外
+
+    /* Stage 3: 分散チェック（全未来スパン） */
+    for (i = 0; i < FUTURE_SPAN; i++)
+    {
+        if (future_sigma_array[i] > Maxsigx)
+            return 0; // 高分散 → 除外
+    }
 
     // すべてのフィルタをパス
     return 1;
@@ -1914,7 +1954,7 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
 
     // 高サポートフラグの設定
     int high_support_marker = 0;
-    if (support_value >= (Minsup + HIGH_SUPPORT_BONUS))
+    if (support_value >= (Minsup * HIGH_SUPPORT_MULTIPLIER))
     {
         high_support_marker = 1;
     }
@@ -1935,7 +1975,7 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
             max_sigma = future_sigma[offset];
         }
     }
-    if (max_sigma <= (Maxsigx - LOW_VARIANCE_REDUCTION))
+    if (max_sigma <= (Maxsigx * LOW_VARIANCE_MULTIPLIER))
     {
         low_variance_marker = 1;
     }
@@ -2068,12 +2108,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
             // 未来予測統計へのポインタを取得
             double *future_mean_ptr = future_sum[individual][k][loop_j];
             double *future_sigma_ptr = future_sigma_array[individual][k][loop_j];
-
-            /* 方向性分離統計へのポインタを取得 */
-            double *positive_mean_ptr = future_positive_sum[individual][k][loop_j];
-            double *negative_mean_ptr = future_negative_sum[individual][k][loop_j];
-            int *positive_count_ptr = future_positive_count[individual][k][loop_j];
-            int *negative_count_dir_ptr = future_negative_count[individual][k][loop_j];
+            double *future_min_ptr = future_min[individual][k][loop_j];
+            double *future_max_ptr = future_max[individual][k][loop_j];
 
             // 属性チェーンをコピー
             for (i2 = 1; i2 < 9; i2++)
@@ -2103,9 +2139,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                 }
             }
 
-            // ルールの品質チェック（サポート率、標準偏差、属性数、集中度、Mean閾値、最小マッチ数をチェック）
+            // ルールの品質チェック（サポート率、標準偏差、属性数、Min/Max象限判定、最小マッチ数をチェック）
             if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
-                                   quadrant_count[individual][k][loop_j], matched_count))
+                                   future_min_ptr, future_max_ptr, matched_count))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {
@@ -2122,59 +2158,13 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
 
-                        /* 象限集中度ボーナスを計算（研究目的：散布図の象限集中度を直接評価） */
-                        double concentration_bonus = 0.0;
-
-                        // 4象限のカウントを取得
-                        int q1 = quadrant_count[individual][k][loop_j][0];
-                        int q2 = quadrant_count[individual][k][loop_j][1];
-                        int q3 = quadrant_count[individual][k][loop_j][2];
-                        int q4 = quadrant_count[individual][k][loop_j][3];
-                        int total_quadrant_matches = q1 + q2 + q3 + q4;
-
-                        if (total_quadrant_matches > 0)
-                        {
-                            // 最大象限のカウントを取得
-                            int max_quadrant_count = q1;
-                            if (q2 > max_quadrant_count)
-                                max_quadrant_count = q2;
-                            if (q3 > max_quadrant_count)
-                                max_quadrant_count = q3;
-                            if (q4 > max_quadrant_count)
-                                max_quadrant_count = q4;
-
-                            // 集中度を計算（0.0 ~ 1.0）
-                            double concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
-
-                            // 集中度に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
-                            concentration_bonus = calculate_concentration_fitness_bonus(concentration_ratio);
-                        }
-
-                        /* 統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
-                        double significance_bonus = 0.0;
-
-                        // t+1とt+2の絶対平均値を取得
-                        double abs_mean_t1 = fabs(future_mean_ptr[0]); // |mean(t+1)|
-                        double abs_mean_t2 = fabs(future_mean_ptr[1]); // |mean(t+2)|
-
-                        // より強い方の絶対平均値を使用（どちらか一方が強ければOK）
-                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
-
-                        // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
-                        significance_bonus = calculate_significance_bonus(max_abs_mean);
-
-                        /* 小集団ボーナスを計算（Tight Cluster Optimization: 希少パターンの優遇） */
-                        double small_cluster_bonus = calculate_small_cluster_bonus(support);
-
-                        // 適応度を更新（新規ルールボーナス + 象限集中度ボーナス + 統計的有意性ボーナス + 小集団ボーナス）
+                        // 適応度を更新（original code準拠: 5要素）
                         fitness_value[individual] +=
-                            j2 * FITNESS_ATTRIBUTE_WEIGHT +
-                            support * FITNESS_SUPPORT_WEIGHT +
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            concentration_bonus + // ← 象限集中度ボーナス（視覚化目標）
-                            significance_bonus +  // ← 統計的有意性ボーナス（研究目標）
-                            small_cluster_bonus + // ← 小集団ボーナス（密集度優先）
-                            FITNESS_NEW_RULE_BONUS;
+                            j2 +                                                                  // 属性数
+                            support * FITNESS_SUPPORT_WEIGHT +                                    // Support
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) + // t+1分散
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[1] + FITNESS_SIGMA_OFFSET) + // t+2分散
+                            FITNESS_NEW_RULE_BONUS;                                               // 新規ルールボーナス
 
                         // 属性使用履歴を更新
                         for (k3 = 0; k3 < j2; k3++)
@@ -2190,74 +2180,12 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     }
                     else
                     {
-                        /* 象限集中度ボーナスを計算（重複ルールでも象限集中度は評価） */
-                        double concentration_bonus = 0.0;
-                        double concentration_ratio = 0.0;
-
-                        // 4象限のカウントを取得
-                        int q1 = quadrant_count[individual][k][loop_j][0];
-                        int q2 = quadrant_count[individual][k][loop_j][1];
-                        int q3 = quadrant_count[individual][k][loop_j][2];
-                        int q4 = quadrant_count[individual][k][loop_j][3];
-                        int total_quadrant_matches = q1 + q2 + q3 + q4;
-
-                        if (total_quadrant_matches > 0)
-                        {
-                            // 最大象限のカウントを取得
-                            int max_quadrant_count = q1;
-                            if (q2 > max_quadrant_count)
-                                max_quadrant_count = q2;
-                            if (q3 > max_quadrant_count)
-                                max_quadrant_count = q3;
-                            if (q4 > max_quadrant_count)
-                                max_quadrant_count = q4;
-
-                            // 集中度を計算（0.0 ~ 1.0）
-                            concentration_ratio = (double)max_quadrant_count / total_quadrant_matches;
-
-                            // 集中度に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
-                            concentration_bonus = calculate_concentration_fitness_bonus(concentration_ratio);
-                        }
-
-                        /* 統計的有意性ボーナスを計算（CLAUDE.md研究目標に準拠） */
-                        double significance_bonus = 0.0;
-
-                        // t+1とt+2の絶対平均値を取得
-                        double abs_mean_t1 = fabs(future_mean_ptr[0]); // |mean(t+1)|
-                        double abs_mean_t2 = fabs(future_mean_ptr[1]); // |mean(t+2)|
-
-                        // より強い方の絶対平均値を使用（どちらか一方が強ければOK）
-                        double max_abs_mean = (abs_mean_t1 > abs_mean_t2) ? abs_mean_t1 : abs_mean_t2;
-
-                        // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
-                        significance_bonus = calculate_significance_bonus(max_abs_mean);
-
-                        /* 小集団ボーナスを計算（Tight Cluster Optimization: 希少パターンの優遇） */
-                        double small_cluster_bonus_dup = calculate_small_cluster_bonus(support);
-
-                        // 【デバッグ】最初の10個の高集中度ルールのみログ出力
-                        static int debug_count = 0;
-                        if (debug_count < 10 && concentration_ratio >= 0.45)
-                        {
-                            fprintf(stderr, "[FITNESS_DEBUG #%d] Conc=%.1f%% Q(%d,%d,%d,%d) Bonus=%.0f Sig=%.3f SigBonus=%.0f Support=%d\n",
-                                    debug_count + 1,
-                                    concentration_ratio * 100,
-                                    q1, q2, q3, q4,
-                                    concentration_bonus,
-                                    max_abs_mean,
-                                    significance_bonus,
-                                    (int)support);
-                            debug_count++;
-                        }
-
-                        // 重複ルールの場合（新規ボーナスなし、象限集中度・統計的有意性・小集団ボーナスあり）
+                        // 重複ルールの場合（新規ボーナスなし）
                         fitness_value[individual] +=
-                            j2 * FITNESS_ATTRIBUTE_WEIGHT +
-                            support * FITNESS_SUPPORT_WEIGHT +
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            concentration_bonus +    // ← 象限集中度ボーナス（視覚化目標）
-                            significance_bonus +     // ← 統計的有意性ボーナス（研究目標）
-                            small_cluster_bonus_dup; // ← 小集団ボーナス（密集度優先）
+                            j2 +                                                                  // 属性数
+                            support * FITNESS_SUPPORT_WEIGHT +                                    // Support
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) + // t+1分散
+                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[1] + FITNESS_SIGMA_OFFSET);  // t+2分散
                     }
 
                     // ルール数上限チェック
