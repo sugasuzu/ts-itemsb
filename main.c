@@ -8,7 +8,7 @@
 
 /* 時系列パラメータ */
 #define TIMESERIES_MODE 1
-#define MAX_TIME_DELAY 3
+#define MAX_TIME_DELAY 1
 #define MIN_TIME_DELAY 0
 #define PREDICTION_SPAN 1
 #define FUTURE_SPAN 2
@@ -31,17 +31,18 @@
 #define CONT_FILE "output/doc/zrd01.txt"
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
-/* ルールマイニング制約 */
-#define Minsup 0.001
-#define Maxsigx 1.0            // 1.0 → 0.5 (厳格化)
-#define MIN_ATTRIBUTES 2       // 1 → 2
-#define Minmean 0.1            // 0.1 → 0.2 (厳格化)
-#define MIN_CONCENTRATION 0.4 
+/* ルールマイニング制約 - Tight Cluster 設定（バランス調整版） */
+#define Minsup 0.001          // 0.1%サポート率（希少パターンOK）
+#define Maxsigx 0.45           // 低分散（密集した小集団）
+#define MIN_ATTRIBUTES 2       // 最小属性数
+#define Minmean 0.2            // 明確な方向性
+#define MIN_CONCENTRATION 0.5  // 象限集中（50%以上）
+#define MIN_SUPPORT_COUNT 10   // 統計的信頼性（最低10回） 
 
 /* 実験パラメータ */
 #define Nrulemax 2002
 #define Nstart 1000
-#define Ntry 1
+#define Ntry 10
 
 /* GNPパラメータ */
 #define Generation 201
@@ -380,6 +381,13 @@ static int check_basic_conditions(double support, int num_attributes)
     if (support < Minsup)
         return 0;
     if (num_attributes < MIN_ATTRIBUTES)
+        return 0;
+    return 1;
+}
+
+static int check_support_count(int matched_count)
+{
+    if (matched_count < MIN_SUPPORT_COUNT)
         return 0;
     return 1;
 }
@@ -1818,6 +1826,10 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
 
     // Stage 1: 基本品質チェック
     if (!check_basic_conditions(support, num_attributes))
+        return 0;
+
+    // Stage 1.5: サポート数チェック（Very Tight Cluster用）
+    if (!check_support_count(matched_count))
         return 0;
 
     // Stage 2: 予測安定性チェック（低分散）

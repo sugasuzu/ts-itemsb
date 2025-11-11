@@ -1,14 +1,13 @@
 # ================================================================================
-# GNMiner Phase 2 - Rule Discovery Makefile
+# GNMiner Phase 2 - FX Rule Discovery Makefile
 # ================================================================================
 #
-# This Makefile builds and runs rule discovery analysis for cryptocurrencies.
+# This Makefile builds and runs rule discovery analysis for forex pairs.
 #
 # Usage:
 #   make            # Build the executable
-#   make run        # Run all 20 cryptocurrencies (DEFAULT)
-#   make run-stocks # Run all 225 Nikkei stocks
-#   make test       # Test with BTC
+#   make run        # Run all 20 forex pairs (DEFAULT)
+#   make test       # Test with USDJPY
 #   make clean      # Remove build artifacts
 #
 # ================================================================================
@@ -19,38 +18,10 @@ LDFLAGS = -lm
 TARGET = main
 SOURCE = main.c
 
-# Nikkei 225 stock codes (225 stocks)
-STOCK_CODES = 1332 1333 1605 \
-              1721 1801 1802 1803 1925 1928 1963 \
-              2002 2269 2282 2501 2502 2503 2531 2801 2802 2871 2914 \
-              3086 3401 3402 3407 \
-              3861 3863 \
-              4005 4021 4042 4043 4061 4063 4151 4183 4188 4202 4204 4208 4272 4324 4452 4502 4503 4506 4507 4519 4523 4543 4568 4578 4612 4631 4661 4681 4704 4751 4901 4911 \
-              5001 5002 5019 5020 5101 5108 5201 5202 5214 5232 5233 5301 5332 5333 5401 5406 5411 5541 5631 5703 5706 5707 5711 5713 5714 5801 5802 5803 \
-              6103 6113 6178 6201 6268 6301 6302 6305 6326 6361 6367 6471 6472 6473 6479 6501 6502 6503 6504 6506 6586 6594 6645 6701 6702 6723 6724 6752 6753 6758 6762 6841 6857 6861 6902 6920 6923 6952 6954 6963 6971 6976 7003 7004 7011 7012 7013 \
-              7201 7202 7203 7205 7267 7269 7270 7272 \
-              7731 7733 7735 7741 7751 7752 \
-              7832 7911 7912 7951 \
-              9501 9502 9503 9531 9532 \
-              9001 9005 9007 9008 9020 9021 9022 \
-              9101 9104 9107 \
-              9201 9202 \
-              9301 9303 9613 \
-              4307 4324 4751 9432 9433 9437 9613 9697 9735 9766 9983 9984 \
-              8001 8002 8015 8031 8053 8058 8233 8252 8267 8306 8316 8331 8411 \
-              3086 3099 3382 7453 7606 7608 7611 8233 8252 8267 9983 \
-              8301 8303 8304 8306 8308 8309 8316 8331 8354 8355 8411 8473 \
-              8473 8601 8604 8628 8630 8697 8750 8766 8802 \
-              8725 8750 8766 8795 \
-              8802 \
-              8801 8802 8830 \
-              2413 4307 4324 4661 4751 6178 9432 9433 9437 9613 9697 9735 9766
-
-# Cryptocurrency pairs (20 pairs) - Updated names without -USD suffix
-CRYPTO_PAIRS = AAVE ADA ALGO ATOM AVAX \
-               BNB BTC DOGE DOT ETC \
-               ETH FIL LINK LTC MATIC \
-               SOL UNI VET XLM XRP
+# FX Currency Pairs (20 major pairs)
+FX_PAIRS = USDJPY EURJPY GBPJPY AUDJPY NZDJPY CADJPY CHFJPY \
+           EURUSD GBPUSD AUDUSD NZDUSD USDCAD USDCHF \
+           EURGBP EURAUD EURCHF GBPAUD GBPCAD AUDCAD AUDNZD
 
 # ================================================================================
 # Build Targets
@@ -62,7 +33,11 @@ all: $(TARGET)
 # Build main executable
 $(TARGET): $(SOURCE)
 	@echo "=========================================="
-	@echo "  Building GNMiner Phase 2"
+	@echo "  Building GNMiner FX Edition"
+	@echo "  Very Tight Cluster Settings:"
+	@echo "    Maxsigx = 0.25%"
+	@echo "    Minmean = 0.5%"
+	@echo "    MIN_SUPPORT_COUNT = 8"
 	@echo "=========================================="
 	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE) $(LDFLAGS)
 	@echo "✓ Build complete: $(TARGET)"
@@ -72,20 +47,21 @@ $(TARGET): $(SOURCE)
 # Execution Targets
 # ================================================================================
 
-# Run all cryptocurrencies (default: 20 cryptocurrencies)
+# Run all forex pairs (default: 20 pairs)
 run: $(TARGET)
 	@echo "=========================================="
-	@echo "  Running Crypto Batch Analysis"
-	@echo "  Total: 20 cryptocurrencies"
+	@echo "  Running FX Batch Analysis"
+	@echo "  Total: 20 currency pairs"
+	@echo "  Setting: Very Tight Cluster"
 	@echo "=========================================="
 	@echo ""
 	@total=0; success=0; failed=0; \
-	for pair in $(CRYPTO_PAIRS); do \
+	for pair in $(FX_PAIRS); do \
 		total=$$((total + 1)); \
 		echo "----------------------------------------"; \
 		echo "[$$total/20] Processing: $$pair"; \
 		echo "----------------------------------------"; \
-		if ./$(TARGET) $$pair 10; then \
+		if ./$(TARGET) $$pair 1; then \
 			success=$$((success + 1)); \
 			echo "✓ SUCCESS: $$pair"; \
 		else \
@@ -95,7 +71,7 @@ run: $(TARGET)
 		echo ""; \
 	done; \
 	echo "=========================================="; \
-	echo "  Crypto Batch Processing Complete"; \
+	echo "  FX Batch Processing Complete"; \
 	echo "=========================================="; \
 	echo "Total runs:    $$total"; \
 	echo "Success:       $$success"; \
@@ -106,105 +82,94 @@ run: $(TARGET)
 	echo "=========================================="; \
 	echo ""
 
-# Test with cryptocurrency (DOGE)
+# Test with USD/JPY
 test: $(TARGET)
 	@echo "=========================================="
-	@echo "  Test Run: Dogecoin (DOGE)"
+	@echo "  Test Run: USD/JPY"
+	@echo "  Very Tight Cluster Settings"
 	@echo "=========================================="
 	@echo ""
-	./$(TARGET) DOGE 10
+	./$(TARGET) USDJPY 1
 	@echo ""
 	@echo "✓ Test complete"
-
-# Run all stocks (225 stocks)
-run-stocks: $(TARGET)
-	@echo "=========================================="
-	@echo "  Running Stock Batch Analysis"
-	@echo "  Total: 225 stocks"
-	@echo "=========================================="
 	@echo ""
-	@total=0; success=0; failed=0; \
-	for code in $(STOCK_CODES); do \
-		total=$$((total + 1)); \
-		echo "----------------------------------------"; \
-		echo "[$$total/225] Processing: $$code"; \
-		echo "----------------------------------------"; \
-		if ./$(TARGET) $$code; then \
-			success=$$((success + 1)); \
-			echo "✓ SUCCESS: $$code"; \
-		else \
-			failed=$$((failed + 1)); \
-			echo "✗ FAILED: $$code"; \
-		fi; \
-		echo ""; \
-	done; \
-	echo "=========================================="; \
-	echo "  Stock Batch Processing Complete"; \
-	echo "=========================================="; \
-	echo "Total runs:    $$total"; \
-	echo "Success:       $$success"; \
-	echo "Failed:        $$failed"; \
-	if [ $$total -gt 0 ]; then \
-		echo "Success rate:  $$((success * 100 / total))%"; \
-	fi; \
-	echo "=========================================="; \
-	echo ""
+	@echo "Check results:"
+	@echo "  cat 1-deta-enginnering/forex_data_daily/output/USDJPY/pool/zrp01a.txt"
 
-# Run specific stock
-# Usage: make run-stock CODE=7203
-run-stock: $(TARGET)
-	@if [ -z "$(CODE)" ]; then \
-		echo "ERROR: CODE must be specified"; \
-		echo "Usage: make run-stock CODE=7203"; \
+# Run specific forex pair
+# Usage: make run-pair PAIR=USDJPY
+run-pair: $(TARGET)
+	@if [ -z "$(PAIR)" ]; then \
+		echo "ERROR: PAIR must be specified"; \
+		echo "Usage: make run-pair PAIR=USDJPY"; \
 		exit 1; \
 	fi
-	./$(TARGET) $(CODE)
+	./$(TARGET) $(PAIR) 1
+
+# Run major pairs only (USD/JPY, EUR/USD, GBP/USD)
+run-major: $(TARGET)
+	@echo "=========================================="
+	@echo "  Running Major FX Pairs"
+	@echo "=========================================="
+	@echo ""
+	@for pair in USDJPY EURUSD GBPUSD; do \
+		echo "Processing: $$pair"; \
+		./$(TARGET) $$pair 1; \
+		echo ""; \
+	done
+	@echo "✓ Major pairs complete"
 
 # ================================================================================
 # Utility Targets
 # ================================================================================
 
-# Clean build artifacts and output files
+# Clean build artifacts and log files
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -f $(TARGET)
 	rm -f *.log
+	rm -f *.png
 	@echo "✓ Clean complete"
 
 # Deep clean (remove all output)
 clean-all: clean
-	@echo "Removing all output files..."
-	rm -rf output/
-	rm -rf crypto_data/output/
+	@echo "Removing all FX output files..."
+	rm -rf 1-deta-enginnering/forex_data_daily/output/
 	@echo "✓ Deep clean complete"
 
 # Show help
 help:
 	@echo "=========================================="
-	@echo "  GNMiner Phase 2 Makefile"
+	@echo "  GNMiner FX Edition Makefile"
 	@echo "=========================================="
 	@echo ""
 	@echo "Targets:"
 	@echo "  make            - Build the executable"
-	@echo "  make run        - Run all 20 cryptocurrencies (DEFAULT)"
-	@echo "  make run-stocks - Run all 225 Nikkei stocks"
-	@echo "  make test       - Test with DOGE"
-	@echo "  make run-stock  - Run specific stock/crypto"
+	@echo "  make run        - Run all 20 forex pairs (DEFAULT)"
+	@echo "  make test       - Test with USD/JPY"
+	@echo "  make run-pair   - Run specific pair"
+	@echo "  make run-major  - Run major pairs only"
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make clean-all  - Remove all output files"
 	@echo "  make help       - Show this help message"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make                           # Build"
-	@echo "  make run                       # All 20 cryptocurrencies"
-	@echo "  make test                      # Dogecoin (DOGE) only"
-	@echo "  make run-stock CODE=BTC        # Bitcoin"
-	@echo "  make run-stock CODE=ETH        # Ethereum"
-	@echo "  make run-stocks                # All 225 stocks"
-	@echo "  make run-stock CODE=7203       # Toyota (stock)"
+	@echo "  make run                       # All 20 pairs"
+	@echo "  make test                      # USD/JPY only"
+	@echo "  make run-pair PAIR=EURUSD      # EUR/USD"
+	@echo "  make run-major                 # Major 3 pairs"
 	@echo ""
-	@echo "Cryptocurrencies (20):"
-	@echo "  $(CRYPTO_PAIRS)"
+	@echo "Available Pairs (20):"
+	@echo "  JPY Cross: USDJPY EURJPY GBPJPY AUDJPY NZDJPY CADJPY CHFJPY"
+	@echo "  USD Cross: EURUSD GBPUSD AUDUSD NZDUSD USDCAD USDCHF"
+	@echo "  Others:    EURGBP EURAUD EURCHF GBPAUD GBPCAD AUDCAD AUDNZD"
+	@echo ""
+	@echo "Very Tight Cluster Settings:"
+	@echo "  Maxsigx: 0.25%  (very low variance)"
+	@echo "  Minmean: 0.5%   (strong directionality)"
+	@echo "  MIN_CONCENTRATION: 0.6 (60% quadrant concentration)"
+	@echo "  MIN_SUPPORT_COUNT: 8 (minimum 8 observations)"
 	@echo ""
 
-.PHONY: all run run-stocks test run-stock clean clean-all help
+.PHONY: all run test run-pair run-major clean clean-all help
