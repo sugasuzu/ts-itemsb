@@ -25,7 +25,7 @@
 #define OUTPUT_DIR_VERIFICATION "output/verification"
 
 /* ファイル名 */
-#define DATANAME "1-deta-enginnering/crypto_data_hourly/BTC.txt"
+#define DATANAME "1-deta-enginnering/forex_data_daily/USDJPY.txt"
 #define POOL_FILE_A "output/pool/zrp01a.txt"
 #define POOL_FILE_B "output/pool/zrp01b.txt"
 #define CONT_FILE "output/doc/zrd01.txt"
@@ -3175,13 +3175,13 @@ void setup_paths_for_stock(const char *code)
     strncpy(stock_code, code, sizeof(stock_code) - 1);
     stock_code[sizeof(stock_code) - 1] = '\0';
 
-    // データファイルパスを設定（時間足データ）
+    // データファイルパスを設定（為替日足データ）
     snprintf(data_file_path, sizeof(data_file_path),
-             "1-deta-enginnering/crypto_data_hourly/%s.txt", stock_code);
+             "1-deta-enginnering/forex_data_daily/%s.txt", stock_code);
 
-    // 出力ベースディレクトリを設定（時間足データは 1-deta-enginnering/crypto_data_hourly/output/ 配下）
+    // 出力ベースディレクトリを設定（為替日足データは 1-deta-enginnering/forex_data_daily/output/ 配下）
     snprintf(output_base_dir, sizeof(output_base_dir),
-             "1-deta-enginnering/crypto_data_hourly/output/%s", stock_code);
+             "1-deta-enginnering/forex_data_daily/output/%s", stock_code);
 
     // 各サブディレクトリのパスを設定
     snprintf(output_dir_il, sizeof(output_dir_il),
@@ -3431,19 +3431,19 @@ int main(int argc, char *argv[])
     if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0))
     {
         printf("==============================================\n");
-        printf("  GNMiner - Rule Discovery\n");
+        printf("  GNMiner - FX Rule Discovery\n");
         printf("==============================================\n\n");
-        printf("Usage: %s <stock_code>\n\n", argv[0]);
+        printf("Usage: %s <currency_pair>\n\n", argv[0]);
         printf("Arguments:\n");
-        printf("  <stock_code>  Nikkei 225 stock code (e.g., 7203, 9984)\n\n");
+        printf("  <currency_pair>  FX currency pair (e.g., USDJPY, EURUSD)\n\n");
         printf("Examples:\n");
-        printf("  %s 7203  # Discover rules for Toyota (7203)\n", argv[0]);
-        printf("  %s 9984  # Discover rules for SoftBank (9984)\n", argv[0]);
-        printf("  %s BTC-USD  # Discover rules for Bitcoin\n\n", argv[0]);
+        printf("  %s USDJPY  # Discover rules for USD/JPY\n", argv[0]);
+        printf("  %s EURUSD  # Discover rules for EUR/USD\n", argv[0]);
+        printf("  %s GBPJPY  # Discover rules for GBP/JPY\n\n", argv[0]);
         printf("Note:\n");
-        printf("  - Data files must exist: crypto_data_hourly/{CODE}.txt\n");
-        printf("  - Results will be saved to: crypto_data_hourly/output/{CODE}/\n");
-        printf("  - Use Makefile: make test, make run-crypto, make run\n\n");
+        printf("  - Data files must exist: forex_data_daily/{PAIR}.txt\n");
+        printf("  - Results will be saved to: forex_data_daily/output/{PAIR}/\n");
+        printf("  - Available pairs: 20 major FX pairs (60 dimensions)\n\n");
         printf("==============================================\n");
         return 0;
     }
@@ -3452,11 +3452,11 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         printf("\nERROR: Insufficient arguments\n\n");
-        printf("Usage: %s <stock_code>\n\n", argv[0]);
-        printf("  <stock_code>: Nikkei 225 stock code (e.g., 7203, 9984)\n\n");
+        printf("Usage: %s <currency_pair>\n\n", argv[0]);
+        printf("  <currency_pair>: FX currency pair (e.g., USDJPY, EURUSD)\n\n");
         printf("Examples:\n");
-        printf("  %s 7203\n", argv[0]);
-        printf("  %s 9984\n\n", argv[0]);
+        printf("  %s USDJPY\n", argv[0]);
+        printf("  %s EURUSD\n\n", argv[0]);
         printf("For help: %s --help\n\n", argv[0]);
         return 1;
     }
@@ -3473,9 +3473,9 @@ int main(int argc, char *argv[])
     // 処理開始
     printf("\n");
     printf("==================================================\n");
-    printf("  GNMiner - Rule Discovery\n");
+    printf("  GNMiner - FX Rule Discovery\n");
     printf("==================================================\n");
-    printf("Stock Code: %s\n", stock_code_arg);
+    printf("Currency Pair: %s\n", stock_code_arg);
     printf("==================================================\n");
     printf("\n");
 
@@ -3493,7 +3493,7 @@ int main(int argc, char *argv[])
     printf("==================================================\n");
     printf("  Processing Complete\n");
     printf("==================================================\n");
-    printf("Stock Code: %s\n", stock_code_arg);
+    printf("Currency Pair: %s\n", stock_code_arg);
     printf("Total Time: %.2fs (%.1fm)\n", total_elapsed, total_elapsed / 60.0);
     printf("Status:     %s\n", result == 0 ? "SUCCESS" : "FAILED");
     printf("==================================================\n");
