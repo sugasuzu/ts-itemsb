@@ -8,7 +8,7 @@
 
 /* 時系列パラメータ */
 #define TIMESERIES_MODE 1
-#define MAX_TIME_DELAY 1
+#define MAX_TIME_DELAY 2
 #define MIN_TIME_DELAY 0
 #define PREDICTION_SPAN 1
 #define FUTURE_SPAN 2
@@ -45,7 +45,7 @@
 #define Ntry 10
 
 /* GNPパラメータ */
-#define Generation 501
+#define Generation 201
 #define Nkotai 120
 #define Npn 10
 #define Njg 100

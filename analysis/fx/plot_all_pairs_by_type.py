@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+FX All Pairs - Top Rules Visualization by Plot Type
+===================================================
+
+Generate plots for all available currency pairs with type-specific scoring.
+
+Usage:
+  python3 plot_all_pairs_by_type.py [--top-n 10] [--pair USDJPY]
+
+Output:
+  - For each pair: scatter_plots_01/best_xt1_xt2/, best_xt1_time/, best_xt2_time/
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from pathlib import Path
+
+# Paths
+BASE_DIR = Path("1-deta-enginnering/forex_data_daily")
+
+def get_available_pairs():
+    """Get list of currency pairs with pool files."""
+    output_dir = BASE_DIR / "output"
+    pairs = []
+
+    for pair_dir in sorted(output_dir.iterdir()):
+        if pair_dir.is_dir():
+            pool_file = pair_dir / "pool/zrp01a.txt"
+            if pool_file.exists():
+                pairs.append(pair_dir.name)
+
+    return pairs
+
+def load_all_data(pair):
+    """Load all data for a specific pair."""
+    data_file = BASE_DIR / f"{pair}.txt"
+
+    if not data_file.exists():
+        return None
+
+    df = pd.read_csv(data_file, encoding='utf-8')
+    x_values = df['X'].values
+    timestamps = pd.to_datetime(df['T'])
+
+    data_list = []
+    for i in range(len(x_values) - 2):
+        data_list.append({
+            'Timestamp': timestamps[i],
+            'X_t1': x_values[i + 1],
+            'X_t2': x_values[i + 2]
+        })
+
+    return pd.DataFrame(data_list)
+
+def load_rules(pair):
+    """Load rules from zrp01a.txt."""
+    rules_file = BASE_DIR / "output" / pair / "pool/zrp01a.txt"
+
+    if not rules_file.exists():
+        return None
+
+    df = pd.read_csv(rules_file, sep='\t', encoding='utf-8')
+    return df
+
+def load_rule_matches(pair, rule_id):
+    """Load verification CSV for a specific rule."""
+    csv_file = BASE_DIR / "output" / pair / "verification" / f"rule_{rule_id:03d}.csv"
+
+    if not csv_file.exists():
+        return None
+
+    df = pd.read_csv(csv_file, encoding='utf-8')
+    timestamps = pd.to_datetime(df['Timestamp'])
+    x_t1 = df['X(t+1)'].values
+    x_t2 = df['X(t+2)'].values
+
+    return pd.DataFrame({
+        'Timestamp': timestamps,
+        'X_t1': x_t1,
+        'X_t2': x_t2
+    })
+
+def calculate_quadrant_concentration(q_pp, q_pn, q_np, q_nn):
+    """Calculate quadrant concentration ratio."""
+    total = q_pp + q_pn + q_np + q_nn
+    if total == 0:
+        return 0.0
+    max_count = max(q_pp, q_pn, q_np, q_nn)
+    return max_count / total
+
+def calculate_score_2d(support_rate, mean_t1, mean_t2, sigma_t1, sigma_t2, concentration):
+    """Score: support_rate × mean_avg × concentration / sigma_avg"""
+    mean_avg = (abs(mean_t1) + abs(mean_t2)) / 2
+    sigma_avg = (sigma_t1 + sigma_t2) / 2
+
+    if sigma_avg > 0:
+        score = support_rate * mean_avg * concentration / sigma_avg
+    else:
+        score = 0.0
+
+    return score
+
+def calculate_score_xt1(support_rate, mean_t1, sigma_t1):
+    """Score: support_rate × |mean_t1| × 1.0 / sigma_t1"""
+    if sigma_t1 > 0:
+        score = support_rate * abs(mean_t1) * 1.0 / sigma_t1
+    else:
+        score = 0.0
+
+    return score
+
+def calculate_score_xt2(support_rate, mean_t2, sigma_t2):
+    """Score: support_rate × |mean_t2| × 1.0 / sigma_t2"""
+    if sigma_t2 > 0:
+        score = support_rate * abs(mean_t2) * 1.0 / sigma_t2
+    else:
+        score = 0.0
+
+    return score
+
+def get_rule_attributes(row):
+    """Extract rule attributes."""
+    attributes = []
+    for i in range(1, 9):
+        attr_name = f'Attr{i}'
+        if attr_name in row.index:
+            value = row[attr_name]
+            if pd.notna(value) and str(value) != '0':
+                attributes.append(str(value))
+    return attributes
+
+def plot_xt1_xt2(pair, rule_id, rule_row, matched_data, all_data, score, concentration, output_dir):
+    """Generate X(t+1) vs X(t+2) scatter plot."""
+
+    mean_t1 = rule_row['X(t+1)_mean']
+    sigma_t1 = rule_row['X(t+1)_sigma']
+    mean_t2 = rule_row['X(t+2)_mean']
+    sigma_t2 = rule_row['X(t+2)_sigma']
+    support_count = rule_row['support_count']
+    support_rate = rule_row['support_rate']
+    num_attr = rule_row['NumAttr']
+    attributes = get_rule_attributes(rule_row)
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    ax.scatter(all_data['X_t1'], all_data['X_t2'],
+               alpha=0.3, s=15, c='gray', label=f'All data (n={len(all_data):,})', zorder=1)
+    ax.scatter(matched_data['X_t1'], matched_data['X_t2'],
+               alpha=0.8, s=80, c='red', edgecolors='darkred',
+               linewidths=1.5, label=f'Rule matches (n={len(matched_data)})', zorder=3)
+
+    ax.axvline(mean_t1, color='blue', linestyle='--', linewidth=2,
+               alpha=0.7, label=f'Mean X(t+1) = {mean_t1:.3f}%', zorder=2)
+    ax.axhline(mean_t2, color='green', linestyle='--', linewidth=2,
+               alpha=0.7, label=f'Mean X(t+2) = {mean_t2:.3f}%', zorder=2)
+    ax.axvline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.5, zorder=1)
+    ax.axhline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.5, zorder=1)
+
+    circle_1sigma = plt.Circle((mean_t1, mean_t2),
+                               (sigma_t1 + sigma_t2) / 2,
+                               color='orange', fill=False,
+                               linestyle='--', linewidth=2, alpha=0.5,
+                               label=f'±1σ (avg={((sigma_t1+sigma_t2)/2):.3f}%)', zorder=2)
+    ax.add_patch(circle_1sigma)
+
+    stats_text = f'{pair} Rule #{rule_id}\n'
+    stats_text += f'━━━━━━━━━━━━━━━━━━━━\n'
+    stats_text += f'Score (2D): {score:.6f}\n'
+    stats_text += f'Concentration: {concentration:.3f}\n'
+    stats_text += f'\n'
+    stats_text += f'Support: {support_count} ({support_rate:.4f})\n'
+    stats_text += f'Attributes: {num_attr}\n'
+    stats_text += f'\n'
+    stats_text += f'X(t+1): μ={mean_t1:+.3f}%, σ={sigma_t1:.3f}%\n'
+    stats_text += f'X(t+2): μ={mean_t2:+.3f}%, σ={sigma_t2:.3f}%\n'
+    stats_text += f'\n'
+    stats_text += f'Pattern:\n'
+    for i, attr in enumerate(attributes[:5], 1):
+        stats_text += f'  {i}. {attr}\n'
+    if len(attributes) > 5:
+        stats_text += f'  ... +{len(attributes)-5} more\n'
+
+    ax.text(0.02, 0.98, stats_text,
+            transform=ax.transAxes,
+            verticalalignment='top',
+            fontsize=9,
+            family='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9),
+            zorder=4)
+
+    q_pp = np.sum((matched_data['X_t1'] > 0) & (matched_data['X_t2'] > 0))
+    q_pn = np.sum((matched_data['X_t1'] > 0) & (matched_data['X_t2'] < 0))
+    q_np = np.sum((matched_data['X_t1'] < 0) & (matched_data['X_t2'] > 0))
+    q_nn = np.sum((matched_data['X_t1'] < 0) & (matched_data['X_t2'] < 0))
+
+    quadrant_text = f'Quadrants:\n'
+    quadrant_text += f'(+,+): {q_pp}\n'
+    quadrant_text += f'(+,-): {q_pn}\n'
+    quadrant_text += f'(-,+): {q_np}\n'
+    quadrant_text += f'(-,-): {q_nn}'
+
+    ax.text(0.98, 0.02, quadrant_text,
+            transform=ax.transAxes,
+            verticalalignment='bottom',
+            horizontalalignment='right',
+            fontsize=10,
+            family='monospace',
+            bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8),
+            zorder=4)
+
+    ax.set_xlabel('X(t+1) [%]', fontsize=14, fontweight='bold')
+    ax.set_ylabel('X(t+2) [%]', fontsize=14, fontweight='bold')
+    ax.set_title(f'{pair} Rule #{rule_id}: X(t+1) vs X(t+2) (Score={score:.6f})',
+                 fontsize=15, fontweight='bold', pad=20)
+    ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
+
+    max_x = max(abs(mean_t1) + sigma_t1 * 4, 2.0)
+    max_y = max(abs(mean_t2) + sigma_t2 * 4, 2.0)
+    max_range = max(max_x, max_y, 3.0)
+    ax.set_xlim(-max_range, max_range)
+    ax.set_ylim(-max_range, max_range)
+
+    plt.tight_layout()
+
+    output_file = output_dir / f"rule_{rule_id:03d}_xt1_xt2.png"
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    return output_file
+
+def plot_time_series(pair, rule_id, rule_row, matched_data, all_data, score, output_dir, plot_type='xt1'):
+    """Generate time series scatter plot."""
+
+    mean_t1 = rule_row['X(t+1)_mean']
+    sigma_t1 = rule_row['X(t+1)_sigma']
+    mean_t2 = rule_row['X(t+2)_mean']
+    sigma_t2 = rule_row['X(t+2)_sigma']
+    support_count = rule_row['support_count']
+    support_rate = rule_row['support_rate']
+    num_attr = rule_row['NumAttr']
+    attributes = get_rule_attributes(rule_row)
+
+    if plot_type == 'xt1':
+        y_col = 'X_t1'
+        mean_val = mean_t1
+        sigma_val = sigma_t1
+        y_label = 'X(t+1) [%]'
+        title_suffix = 'X(t+1) vs Time'
+    else:
+        y_col = 'X_t2'
+        mean_val = mean_t2
+        sigma_val = sigma_t2
+        y_label = 'X(t+2) [%]'
+        title_suffix = 'X(t+2) vs Time'
+
+    fig, ax = plt.subplots(figsize=(16, 8))
+
+    ax.scatter(all_data['Timestamp'], all_data[y_col],
+               alpha=0.3, s=10, c='gray', label=f'All data (n={len(all_data):,})', zorder=1)
+    ax.scatter(matched_data['Timestamp'], matched_data[y_col],
+               alpha=0.8, s=100, c='red', edgecolors='darkred',
+               linewidths=1.5, label=f'Rule matches (n={len(matched_data)})', zorder=3)
+
+    ax.axhline(mean_val, color='blue', linestyle='--', linewidth=2,
+               alpha=0.7, label=f'Mean = {mean_val:.3f}%', zorder=2)
+    ax.axhline(mean_val + sigma_val, color='orange', linestyle=':', linewidth=1.5,
+               alpha=0.5, label=f'Mean ± 1σ', zorder=2)
+    ax.axhline(mean_val - sigma_val, color='orange', linestyle=':', linewidth=1.5,
+               alpha=0.5, zorder=2)
+    ax.axhline(mean_val + 2*sigma_val, color='purple', linestyle=':', linewidth=1,
+               alpha=0.4, label=f'Mean ± 2σ', zorder=2)
+    ax.axhline(mean_val - 2*sigma_val, color='purple', linestyle=':', linewidth=1,
+               alpha=0.4, zorder=2)
+    ax.axhline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.5, zorder=1)
+
+    stats_text = f'{pair} Rule #{rule_id}\n'
+    stats_text += f'━━━━━━━━━━━━━━━━━━━━\n'
+    stats_text += f'Score (1D): {score:.6f}\n'
+    stats_text += f'Concentration: 1.0 (N/A)\n'
+    stats_text += f'\n'
+    stats_text += f'Support: {support_count} ({support_rate:.4f})\n'
+    stats_text += f'Attributes: {num_attr}\n'
+    stats_text += f'\n'
+    stats_text += f'{y_label}: μ={mean_val:+.3f}%, σ={sigma_val:.3f}%\n'
+    stats_text += f'\n'
+    stats_text += f'Pattern:\n'
+    for i, attr in enumerate(attributes[:5], 1):
+        stats_text += f'  {i}. {attr}\n'
+    if len(attributes) > 5:
+        stats_text += f'  ... +{len(attributes)-5} more\n'
+
+    ax.text(0.02, 0.98, stats_text,
+            transform=ax.transAxes,
+            verticalalignment='top',
+            fontsize=9,
+            family='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9),
+            zorder=4)
+
+    ax.set_xlabel('Time', fontsize=14, fontweight='bold')
+    ax.set_ylabel(y_label, fontsize=14, fontweight='bold')
+    ax.set_title(f'{pair} Rule #{rule_id}: {title_suffix} (Score={score:.6f})',
+                 fontsize=15, fontweight='bold', pad=20)
+    ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
+
+    # Set Y-axis range: -4% to +4% (centered at 0)
+    ax.set_ylim(-4.0, 4.0)
+
+    fig.autofmt_xdate()
+    plt.tight_layout()
+
+    output_file = output_dir / f"rule_{rule_id:03d}_{plot_type}_time.png"
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    return output_file
+
+def process_pair(pair, top_n=10):
+    """Process one currency pair."""
+
+    print(f"\n{'='*60}")
+    print(f"Processing: {pair}")
+    print(f"{'='*60}")
+
+    # Setup directories
+    output_base = BASE_DIR / "output" / pair / "scatter_plots_01"
+    scatter_dir_2d = output_base / "best_xt1_xt2"
+    scatter_dir_xt1 = output_base / "best_xt1_time"
+    scatter_dir_xt2 = output_base / "best_xt2_time"
+
+    scatter_dir_2d.mkdir(parents=True, exist_ok=True)
+    scatter_dir_xt1.mkdir(parents=True, exist_ok=True)
+    scatter_dir_xt2.mkdir(parents=True, exist_ok=True)
+
+    # Load data
+    all_data = load_all_data(pair)
+    if all_data is None:
+        print(f"  ✗ Data file not found")
+        return
+
+    rules_df = load_rules(pair)
+    if rules_df is None:
+        print(f"  ✗ Rules file not found")
+        return
+
+    print(f"  Data points: {len(all_data)}")
+    print(f"  Total rules: {len(rules_df)}")
+
+    # Calculate scores
+    scores_2d = []
+    scores_xt1 = []
+    scores_xt2 = []
+
+    for idx, row in rules_df.iterrows():
+        rule_id = idx + 1
+
+        matched_data = load_rule_matches(pair, rule_id)
+        if matched_data is None or len(matched_data) == 0:
+            continue
+
+        # Concentration
+        q_pp = np.sum((matched_data['X_t1'] > 0) & (matched_data['X_t2'] > 0))
+        q_pn = np.sum((matched_data['X_t1'] > 0) & (matched_data['X_t2'] < 0))
+        q_np = np.sum((matched_data['X_t1'] < 0) & (matched_data['X_t2'] > 0))
+        q_nn = np.sum((matched_data['X_t1'] < 0) & (matched_data['X_t2'] < 0))
+        concentration = calculate_quadrant_concentration(q_pp, q_pn, q_np, q_nn)
+
+        # Scores
+        score_2d = calculate_score_2d(
+            row['support_rate'], row['X(t+1)_mean'], row['X(t+2)_mean'],
+            row['X(t+1)_sigma'], row['X(t+2)_sigma'], concentration
+        )
+        score_xt1 = calculate_score_xt1(
+            row['support_rate'], row['X(t+1)_mean'], row['X(t+1)_sigma']
+        )
+        score_xt2 = calculate_score_xt2(
+            row['support_rate'], row['X(t+2)_mean'], row['X(t+2)_sigma']
+        )
+
+        scores_2d.append({'rule_id': rule_id, 'score': score_2d, 'concentration': concentration, 'row': row})
+        scores_xt1.append({'rule_id': rule_id, 'score': score_xt1, 'row': row})
+        scores_xt2.append({'rule_id': rule_id, 'score': score_xt2, 'row': row})
+
+    # Sort
+    scores_2d.sort(key=lambda x: x['score'], reverse=True)
+    scores_xt1.sort(key=lambda x: x['score'], reverse=True)
+    scores_xt2.sort(key=lambda x: x['score'], reverse=True)
+
+    # Generate plots
+    print(f"\n  Generating plots (top {top_n} each)...")
+
+    # Type 1
+    for i, item in enumerate(scores_2d[:top_n], 1):
+        matched_data = load_rule_matches(pair, item['rule_id'])
+        plot_xt1_xt2(pair, item['rule_id'], item['row'], matched_data, all_data,
+                     item['score'], item['concentration'], scatter_dir_2d)
+
+    # Type 2
+    for i, item in enumerate(scores_xt1[:top_n], 1):
+        matched_data = load_rule_matches(pair, item['rule_id'])
+        plot_time_series(pair, item['rule_id'], item['row'], matched_data, all_data,
+                        item['score'], scatter_dir_xt1, 'xt1')
+
+    # Type 3
+    for i, item in enumerate(scores_xt2[:top_n], 1):
+        matched_data = load_rule_matches(pair, item['rule_id'])
+        plot_time_series(pair, item['rule_id'], item['row'], matched_data, all_data,
+                        item['score'], scatter_dir_xt2, 'xt2')
+
+    print(f"  ✓ Generated {top_n * 3} plots")
+    print(f"    X(t+1) vs X(t+2): {scatter_dir_2d}")
+    print(f"    X(t+1) vs Time:   {scatter_dir_xt1}")
+    print(f"    X(t+2) vs Time:   {scatter_dir_xt2}")
+
+def main():
+    """Main function."""
+    parser = argparse.ArgumentParser(description='Generate FX rule plots for all pairs')
+    parser.add_argument('--top-n', type=int, default=10, help='Number of top rules per type')
+    parser.add_argument('--pair', type=str, default=None, help='Process specific pair only')
+    args = parser.parse_args()
+
+    print("="*60)
+    print("FX All Pairs - Top Rules Visualization")
+    print("="*60)
+
+    if args.pair:
+        pairs = [args.pair]
+    else:
+        pairs = get_available_pairs()
+
+    print(f"\nProcessing {len(pairs)} currency pairs...")
+    print(f"Top {args.top_n} rules per plot type\n")
+
+    for pair in pairs:
+        process_pair(pair, args.top_n)
+
+    print("\n" + "="*60)
+    print("✓ Processing Complete")
+    print("="*60)
+
+if __name__ == "__main__":
+    main()

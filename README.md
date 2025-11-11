@@ -33,10 +33,11 @@
 8. [出力ファイル詳細](#出力ファイル詳細)
 9. [パラメータ設定ガイド](#パラメータ設定ガイド)
 10. [実装技術詳細](#実装技術詳細)
-11. [応用例と実績](#応用例と実績)
-12. [パフォーマンス最適化](#パフォーマンス最適化)
-13. [トラブルシューティング](#トラブルシューティング)
-14. [今後の開発予定](#今後の開発予定)
+11. [為替データ分析の詳細](#為替データ分析の詳細) ⭐ 新規追加
+12. [応用例と実績](#応用例と実績)
+13. [パフォーマンス最適化](#パフォーマンス最適化)
+14. [トラブルシューティング](#トラブルシューティング)
+15. [今後の開発予定](#今後の開発予定)
 
 ---
 
@@ -116,12 +117,13 @@ double current_x = get_current_actual_value(time_index); // tの値（新機能�
 
 ### 前提条件
 
-- OS: Linux/Unix（Windows WSL2対応）
+- OS: Linux/Unix（Windows WSL2対応）/ macOS
 - コンパイラ: GCC 4.8以降
 - メモリ: 最小512MB、推奨1GB以上
 - ディスク: 100MB以上の空き容量
+- Python: 3.7以降（データ可視化用）
 
-### インストールと実行
+### インストールと実行（暗号通貨/株式データ）
 
 ```bash
 # 1. ソースコードの準備
@@ -143,6 +145,38 @@ gcc -o gnminer_phase2 gnminer_phase2.c -lm -O2
 
 # 6. リアルタイム進捗確認
 tail -f output/doc/zrd01.txt
+```
+
+### インストールと実行（為替データ）
+
+```bash
+# 1. コンパイル
+make
+
+# 2. 為替データでルール発見を実行（例: EURUSD）
+./main EURUSD 10
+# 引数1: 通貨ペア名（EURUSD, GBPJPY, USDCHFなど）
+# 引数2: 試行回数（デフォルト: 10）
+
+# 3. 他の通貨ペアでも実行可能
+./main GBPJPY 10
+./main USDJPY 10
+
+# 4. 出力確認
+ls -lh 1-deta-enginnering/forex_data_daily/output/EURUSD/pool/zrp01a.txt
+
+# 5. 散布図作成
+# 5.1 個別通貨ペアのトップルールを可視化
+python3 analysis/fx/plot_top_rules_by_type.py --pair EURUSD --top-n 10
+
+# 5.2 全通貨ペアのトップルールを可視化
+python3 analysis/fx/plot_all_pairs_by_type.py --top-n 10
+
+# 5.3 全通貨ペアのグローバルトップ10を表示
+python3 analysis/fx/find_global_top_rules.py
+
+# 6. 生成された散布図を確認
+ls -lh 1-deta-enginnering/forex_data_daily/output/EURUSD/scatter_plots_01/
 ```
 
 ---
@@ -494,9 +528,159 @@ void allocate_dynamic_memory() {
 
 ---
 
+## 為替データ分析の詳細
+
+### 対応通貨ペア（20ペア）
+
+| カテゴリ | 通貨ペア |
+|---------|---------|
+| 対円ペア | USDJPY, EURJPY, GBPJPY, AUDJPY, NZDJPY, CADJPY, CHFJPY |
+| 対米ドルペア | EURUSD, GBPUSD, AUDUSD, NZDUSD, USDCAD, USDCHF |
+| クロスペア | EURGBP, EURAUD, EURCHF, GBPAUD, GBPCAD, AUDCAD, AUDNZD |
+
+### データ構造
+
+```
+1-deta-enginnering/forex_data_daily/
+├── EURUSD.txt          # 入力データ（60属性 + X + T）
+├── GBPJPY.txt
+├── ...
+└── output/
+    ├── EURUSD/
+    │   ├── pool/
+    │   │   └── zrp01a.txt              # 発見ルール一覧
+    │   ├── verification/
+    │   │   ├── rule_001.csv            # ルール#1のマッチング詳細
+    │   │   └── rule_002.csv
+    │   └── scatter_plots_01/           # 散布図
+    │       ├── best_xt1_xt2/           # X(t+1) vs X(t+2)
+    │       ├── best_xt1_time/          # X(t+1) vs Time
+    │       └── best_xt2_time/          # X(t+2) vs Time
+    └── global_top_rules.csv            # 全通貨ペアのトップ10
+```
+
+### スコアリング方式
+
+#### 1. 2D散布図スコア（X(t+1) vs X(t+2)）
+
+```
+score = support_rate × mean_avg × concentration / sigma_avg
+```
+
+- `mean_avg = (|mean_t1| + |mean_t2|) / 2`
+- `sigma_avg = (sigma_t1 + sigma_t2) / 2`
+- `concentration`: 最大象限への集中度（0.0-1.0）
+
+**意味**: クラスタの質と方向性の明確さ
+
+#### 2. 時系列スコア（X(t+1) vs Time / X(t+2) vs Time）
+
+```
+score_t1 = support_rate × |mean_t1| / sigma_t1
+score_t2 = support_rate × |mean_t2| / sigma_t2
+```
+
+- `concentration = 1.0`（1次元データのため固定）
+
+**意味**: 方向性の強さと安定性
+
+### 可視化スクリプト詳細
+
+#### plot_top_rules_by_type.py
+
+**機能**: 単一通貨ペアのトップルールを3タイプ別に可視化
+
+**使用例**:
+```bash
+python3 analysis/fx/plot_top_rules_by_type.py --pair EURUSD --top-n 10
+```
+
+**出力**:
+- `scatter_plots_01/best_xt1_xt2/`: 2D散布図 10枚
+- `scatter_plots_01/best_xt1_time/`: X(t+1)時系列 10枚
+- `scatter_plots_01/best_xt2_time/`: X(t+2)時系列 10枚
+
+#### plot_all_pairs_by_type.py
+
+**機能**: 全20通貨ペアのトップルールを一括可視化
+
+**使用例**:
+```bash
+python3 analysis/fx/plot_all_pairs_by_type.py --top-n 10
+```
+
+**出力**: 498枚のPNGファイル（20ペア × 3タイプ × 各10枚 - 一部欠損）
+
+#### find_global_top_rules.py
+
+**機能**: 1,113ルール全体からグローバルトップ10を抽出
+
+**使用例**:
+```bash
+python3 analysis/fx/find_global_top_rules.py
+```
+
+**出力**:
+- コンソール: 3タイプ別のトップ10表示
+- CSV: `output/global_top_rules.csv`（30行）
+
+### 発見ルールの解釈例
+
+```
+ルール例: EURUSD Rule #1
+├── パターン: CADJPY_Stay(t-9)
+├── スコア: 0.390 (2D), 0.479 (t+1), 0.761 (t+2)
+├── 統計:
+│   ├── support: 15件 (support_rate = 1.0000)
+│   ├── mean(t+1): -0.23%, sigma(t+1): 0.48%
+│   └── mean(t+2): +0.22%, sigma(t+2): 0.29%
+└── 解釈:
+    - 9日前にCAD/JPYが横ばい（Stay）
+    - → EUR/USDは翌日-0.23%、2日後+0.22%の傾向
+    - 集中度66.7%（4象限中1つに集中）
+```
+
+### 経済的解釈のポイント
+
+1. **Stay属性の意味**
+   - EURCHF_Stay: スイス中銀介入による安定期
+   - 発生率1.7%のレアイベント
+   - 市場安定の指標として機能
+
+2. **クロス通貨効果**
+   - CADJPY（カナダドル/円）の動きが
+   - EURUSD（ユーロ/ドル）を予測
+   - → G7通貨間の連動性
+
+3. **時間遅延パターン**
+   - t-10からt-0までの10日間の履歴
+   - 最適遅延はルールごとに異なる
+   - 適応的学習により自動発見
+
 ## 応用例と実績
 
-### 1. 📈 株式市場予測
+### 1. 💱 為替市場予測（FX）
+
+発見ルール例:
+
+```
+Rule #001 (EURUSD):
+IF CADJPY_Stay(t-9)
+THEN
+    EUR/USD(t+1): -0.23% ± 0.48%
+    EUR/USD(t+2): +0.22% ± 0.29%
+    Support: 15 matches (100% match rate)
+    Score (2D): 0.390, Score (t+2): 0.761
+```
+
+実績:
+
+- 20通貨ペアで1,113ルール発見
+- トップルールのsupport_rate: 1.0000（完全マッチ）
+- クロス通貨効果の定量化成功
+- Stay属性（市場安定期）の予測因子としての有用性確認
+
+### 2. 📈 株式市場予測
 
 発見ルール例:
 
