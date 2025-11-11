@@ -1668,16 +1668,22 @@ void evaluate_single_instance(int time_index)
                 {
                     // 属性値が0：スキップ側へ進む（処理ノードに戻る）
                     //
-                    // 【重要】この evaluation_count++ が negative_count 計算の正確性に不可欠
+                    // 【重要】この evaluation_count++ がサポート率計算の正確性に不可欠
                     //
-                    // negative_count = match_count[0] - evaluation_count[i] + match_count[i]
-                    //                = 全データ数 - 評価したが不一致だった数 + マッチした数
-                    //                = 評価可能なデータ数
+                    // support_rate = match_count / evaluation_count
                     //
-                    // もし evaluation_count++ がないと、evaluation_count ≈ match_count となり、
-                    // すべてのルールで negative_count = match_count[0]（定数）になってしまう。
+                    // evaluation_count = ルール評価が行われた回数（マッチ + 不一致の合計）
                     //
-                    // 修正履歴: 2025-11-02 - negative_count計算の正確性のため追加
+                    // もし evaluation_count++ がないと、不一致ケースがカウントされず、
+                    // サポート率が不正確に高く計算されてしまう。
+                    //
+                    // 例: 100回評価して10回マッチ
+                    //   正: support_rate = 10/100 = 0.10 (10%)
+                    //   誤: support_rate = 10/10 = 1.00 (100%) ← 不一致を数えないと過大評価
+                    //
+                    // 修正履歴:
+                    //   2025-11-02 - evaluation_count追加
+                    //   2025-11-11 - コメントを正しいサポート率の説明に更新
                     evaluation_count[individual][k][depth]++;
                     current_node_id = k;
                 }
@@ -1719,10 +1725,18 @@ void calculate_negative_counts()
         {
             for (i = 0; i < Nmx; i++)
             {
-                // ネガティブカウント = 全体 - 評価外 + マッチ
-                negative_count[individual][k][i] =
-                    match_count[individual][k][0] - evaluation_count[individual][k][i] +
-                    match_count[individual][k][i];
+                // 正しいサポート率の計算:
+                // support_rate = match_count / evaluation_count
+                //
+                // evaluation_count = ルール評価が行われた回数（過去の属性が揃った回数）
+                //
+                // 注意: オリジナルコード (original_code.c line 443) では
+                //   nva = kazu[0] - mva + kazu
+                // という式を使っていたが、これは論理的に不正確。
+                // 標準的なサポート率の定義に従い、evaluation_count を直接使用する。
+                //
+                // 修正履歴: 2025-11-11 - 論理的に正しい式に修正
+                negative_count[individual][k][i] = evaluation_count[individual][k][i];
             }
         }
     }
