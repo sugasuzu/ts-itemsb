@@ -31,11 +31,12 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 4象限MinMax方式 */
-#define Minsup 0.0000005            // 0.5%サポート率
-#define QUADRANT_THRESHOLD 0.05 // 0.05% 象限判定閾値
-#define Maxsigx 0.5           // 0.1% 最大標準偏差（tight cluster）
-#define MIN_ATTRIBUTES 1        // 最小属性数
-#define MIN_SUPPORT_COUNT 1   // 統計的信頼性（最低20回）
+#define Minsup 0.005           // 0.5 サポート率
+#define QUADRANT_THRESHOLD 1.0 // 1.0% 象限判定閾値（またぎ許容量）
+#define Maxsigx 0.5            // 最大標準偏差
+#define MIN_SUPPORT_COUNT 20   // 統計的信頼性（最低15回）
+
+#define MIN_ATTRIBUTES 1 // 最小属性数 使わないから後で削除
 
 /* ルール品質フラグ設定の係数 */
 #define HIGH_SUPPORT_MULTIPLIER 2.0 // 高サポートフラグの判定係数（Minsup * 2.0）
@@ -101,6 +102,8 @@ struct temporal_rule
 
     double future_mean[FUTURE_SPAN];
     double future_sigma[FUTURE_SPAN];
+    double future_min[FUTURE_SPAN]; // MinX統計
+    double future_max[FUTURE_SPAN]; // MaxX統計
 
     int support_count;
     int negative_count;
@@ -206,6 +209,14 @@ int **gene_time_delay = NULL;
 int total_rule_count = 0;
 int total_high_support = 0;
 int total_low_variance = 0;
+
+/* フィルタ統計カウンタ */
+int filter_rejected_by_minsup = 0;
+int filter_rejected_by_min_attributes = 0;
+int filter_rejected_by_min_support_count = 0;
+int filter_rejected_by_quadrant = 0;
+int filter_rejected_by_maxsigx = 0;
+int filter_passed_total = 0;
 
 int rules_per_trial[Ntry];
 int new_rule_marker[Nrulemax];
@@ -420,16 +431,51 @@ __attribute__((unused)) static double calculate_maximum_return(int *matched_indi
 
 static int determine_quadrant(double min_t1, double max_t1, double min_t2, double max_t2)
 {
-    if (min_t1 >= QUADRANT_THRESHOLD && min_t2 >= QUADRANT_THRESHOLD)
+    // 範囲の中心点を計算（Min/Max情報を活用）
+    double center_t1 = (min_t1 + max_t1) / 2.0;
+    double center_t2 = (min_t2 + max_t2) / 2.0;
+
+    // 中心点が正側の場合、負側へのはみ出しをチェック
+    // 中心点が負側の場合、正側へのはみ出しをチェック
+    // QUADRANT_THRESHOLD: 許容する「またぎ量」
+
+    // t+1 の一貫性チェック
+    if (center_t1 > 0.0)
+    {
+        // 中心は正だが、minが負側に行きすぎている場合は除外
+        if (min_t1 < -QUADRANT_THRESHOLD)
+            return 0; // またぎすぎ（一貫性なし）
+    }
+    else if (center_t1 < 0.0)
+    {
+        // 中心は負だが、maxが正側に行きすぎている場合は除外
+        if (max_t1 > QUADRANT_THRESHOLD)
+            return 0; // またぎすぎ（一貫性なし）
+    }
+
+    // t+2 の一貫性チェック
+    if (center_t2 > 0.0)
+    {
+        if (min_t2 < -QUADRANT_THRESHOLD)
+            return 0;
+    }
+    else if (center_t2 < 0.0)
+    {
+        if (max_t2 > QUADRANT_THRESHOLD)
+            return 0;
+    }
+
+    // 中心点で象限を判定
+    if (center_t1 > 0.0 && center_t2 > 0.0)
         return 1; // Q1: 両方正 (++)
-    if (max_t1 <= -QUADRANT_THRESHOLD && min_t2 >= QUADRANT_THRESHOLD)
+    if (center_t1 < 0.0 && center_t2 > 0.0)
         return 2; // Q2: t+1負, t+2正 (-+)
-    if (max_t1 <= -QUADRANT_THRESHOLD && max_t2 <= -QUADRANT_THRESHOLD)
+    if (center_t1 < 0.0 && center_t2 < 0.0)
         return 3; // Q3: 両方負 (--)
-    if (min_t1 >= QUADRANT_THRESHOLD && max_t2 <= -QUADRANT_THRESHOLD)
+    if (center_t1 > 0.0 && center_t2 < 0.0)
         return 4; // Q4: t+1正, t+2負 (+-)
 
-    return 0; // 不一致（複数象限にまたがる）
+    return 0; // centerがゼロ付近（稀なケース）
 }
 
 void allocate_future_arrays()
@@ -1431,6 +1477,8 @@ void initialize_rule_pool()
         {
             rule_pool[i].future_mean[k] = 0.0;
             rule_pool[i].future_sigma[k] = 0.0;
+            rule_pool[i].future_min[k] = 0.0;
+            rule_pool[i].future_max[k] = 0.0;
         }
         rule_pool[i].support_count = 0;
         rule_pool[i].negative_count = 0;
@@ -1861,16 +1909,45 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     double min_t1, max_t1, min_t2, max_t2;
     int quadrant;
     int i;
+    static int debug_sample_count = 0;
+    int should_debug = (debug_sample_count < 50); // 最初の50件のみデバッグ出力
 
     /* Stage 1: サポート率チェック */
     if (support < Minsup)
+    {
+        filter_rejected_by_minsup++;
+        if (should_debug)
+        {
+            fprintf(stderr, "[FILTER] Rejected by Minsup: support=%.4f%% < Minsup=%.4f%%\n",
+                    support, Minsup);
+            debug_sample_count++;
+        }
         return 0;
+    }
 
     if (num_attributes < MIN_ATTRIBUTES)
+    {
+        filter_rejected_by_min_attributes++;
+        if (should_debug)
+        {
+            fprintf(stderr, "[FILTER] Rejected by MIN_ATTRIBUTES: attrs=%d < MIN=%d\n",
+                    num_attributes, MIN_ATTRIBUTES);
+            debug_sample_count++;
+        }
         return 0;
+    }
 
     if (matched_count < MIN_SUPPORT_COUNT)
+    {
+        filter_rejected_by_min_support_count++;
+        if (should_debug)
+        {
+            fprintf(stderr, "[FILTER] Rejected by MIN_SUPPORT_COUNT: count=%d < MIN=%d\n",
+                    matched_count, MIN_SUPPORT_COUNT);
+            debug_sample_count++;
+        }
         return 0;
+    }
 
     /* Stage 2: 象限判定（MinMaxベース） */
     // すでに計算済みのMin/Maxを使用
@@ -1882,16 +1959,45 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     // 象限判定
     quadrant = determine_quadrant(min_t1, max_t1, min_t2, max_t2);
     if (quadrant == 0)
+    {
+        filter_rejected_by_quadrant++;
+        if (should_debug)
+        {
+            fprintf(stderr, "[FILTER] Rejected by Quadrant: min_t1=%.4f%%, max_t1=%.4f%%, min_t2=%.4f%%, max_t2=%.4f%% (threshold=%.4f%%)\n",
+                    min_t1, max_t1, min_t2, max_t2, QUADRANT_THRESHOLD);
+            fprintf(stderr, "  → Mixed quadrant (not consistent)\n");
+            debug_sample_count++;
+        }
         return 0; // 複数象限にまたがる → 除外
+    }
 
     /* Stage 3: 分散チェック（全未来スパン） */
     for (i = 0; i < FUTURE_SPAN; i++)
     {
         if (future_sigma_array[i] > Maxsigx)
+        {
+            filter_rejected_by_maxsigx++;
+            if (should_debug)
+            {
+                fprintf(stderr, "[FILTER] Rejected by Maxsigx: sigma[t+%d]=%.4f%% > Maxsigx=%.4f%%\n",
+                        i + 1, future_sigma_array[i] * 100.0, Maxsigx * 100.0);
+                debug_sample_count++;
+            }
             return 0; // 高分散 → 除外
+        }
     }
 
     // すべてのフィルタをパス
+    filter_passed_total++;
+    if (should_debug)
+    {
+        fprintf(stderr, "[FILTER] ✓ PASSED: support=%.4f%%, attrs=%d, count=%d, quadrant=Q%d, mean_t1=%.4f%%, sigma_t1=%.4f%%\n",
+                support, num_attributes, matched_count, quadrant,
+                future_mean_array[0], future_sigma_array[0]);
+        fprintf(stderr, "  Min/Max: t+1[%.4f%%, %.4f%%], t+2[%.4f%%, %.4f%%]\n",
+                min_t1, max_t1, min_t2, max_t2);
+        debug_sample_count++;
+    }
     return 1;
 }
 
@@ -1926,6 +2032,7 @@ void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, in
 
 void register_new_rule(struct trial_state *state, int *rule_candidate, int *time_delays,
                        double *future_mean, double *future_sigma,
+                       double *future_min, double *future_max,
                        int support_count, int negative_count_val, double support_value,
                        int num_attributes,
                        int individual, int k, int depth)
@@ -1945,6 +2052,8 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
     {
         rule_pool[idx].future_mean[i] = future_mean[i];
         rule_pool[idx].future_sigma[i] = future_sigma[i];
+        rule_pool[idx].future_min[i] = future_min[i];
+        rule_pool[idx].future_max[i] = future_max[i];
     }
 
     rule_pool[idx].support_count = support_count;
@@ -2151,6 +2260,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 新規ルールとして登録
                         register_new_rule(state, rule_candidate, time_delay_memo,
                                           future_mean_ptr, future_sigma_ptr,
+                                          future_min_ptr, future_max_ptr,
                                           matched_count, negative_count[individual][k][loop_j],
                                           support, j2,
                                           individual, k, loop_j);
@@ -2686,9 +2796,11 @@ void write_local_output(struct trial_state *state)
         // 未来予測統計（t+1, t+2, ..., t+FUTURE_SPAN）
         for (int k = 0; k < FUTURE_SPAN; k++)
         {
-            fprintf(file, "%8.3f\t%5.3f\t",
+            fprintf(file, "%8.3f\t%5.3f\t%8.3f\t%8.3f\t",
                     rule_pool[i].future_mean[k],
-                    rule_pool[i].future_sigma[k]);
+                    rule_pool[i].future_sigma[k],
+                    rule_pool[i].future_min[k],
+                    rule_pool[i].future_max[k]);
         }
 
         // その他の統計
@@ -2793,7 +2905,7 @@ void write_global_pool(struct trial_state *state)
         // 未来予測統計列（動的生成）
         for (int k = 1; k <= FUTURE_SPAN; k++)
         {
-            fprintf(file_a, "X(t+%d)_mean\tX(t+%d)_sigma\t", k, k);
+            fprintf(file_a, "X(t+%d)_mean\tX(t+%d)_sigma\tX(t+%d)_min\tX(t+%d)_max\t", k, k, k, k);
         }
 
         // その他の統計列
@@ -2821,9 +2933,11 @@ void write_global_pool(struct trial_state *state)
             // 未来予測統計（t+1, t+2, ..., t+FUTURE_SPAN）
             for (int k = 0; k < FUTURE_SPAN; k++)
             {
-                fprintf(file_a, "%8.3f\t%5.3f\t",
+                fprintf(file_a, "%8.3f\t%5.3f\t%8.3f\t%8.3f\t",
                         global_rule_pool[i].future_mean[k],
-                        global_rule_pool[i].future_sigma[k]);
+                        global_rule_pool[i].future_sigma[k],
+                        global_rule_pool[i].future_min[k],
+                        global_rule_pool[i].future_max[k]);
             }
 
             // その他の統計
@@ -3071,6 +3185,115 @@ void initialize_document_file()
     }
 }
 
+void write_filter_statistics_to_file()
+{
+    char filter_stats_path[512];
+    FILE *fp;
+    time_t now;
+    struct tm *tm_info;
+    char time_str[64];
+
+    // ファイルパスを生成
+    snprintf(filter_stats_path, sizeof(filter_stats_path),
+             "%s/filter_statistics.txt", output_dir_doc);
+
+    // ファイルを開く
+    fp = fopen(filter_stats_path, "w");
+    if (fp == NULL)
+    {
+        fprintf(stderr, "Warning: Could not create filter statistics file: %s\n", filter_stats_path);
+        return;
+    }
+
+    // タイムスタンプを取得
+    time(&now);
+    tm_info = localtime(&now);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+
+    // ヘッダー
+    fprintf(fp, "========================================\n");
+    fprintf(fp, "  Filter Statistics Report\n");
+    fprintf(fp, "========================================\n");
+    fprintf(fp, "Generated: %s\n", time_str);
+    fprintf(fp, "Stock Code: %s\n", stock_code);
+    fprintf(fp, "Data File: %s\n", data_file_path);
+    fprintf(fp, "========================================\n\n");
+
+    // 閾値設定
+    fprintf(fp, "========== Threshold Settings ==========\n");
+    fprintf(fp, "Minsup (Support Rate):         %.4f%%\n", Minsup);
+    fprintf(fp, "QUADRANT_THRESHOLD:            %.4f%%\n", QUADRANT_THRESHOLD);
+    fprintf(fp, "Maxsigx (Max Std Dev):         %.4f%%\n", Maxsigx);
+    fprintf(fp, "MIN_SUPPORT_COUNT:             %d\n", MIN_SUPPORT_COUNT);
+    fprintf(fp, "========================================\n\n");
+
+    // フィルタ統計
+    int total_evaluated = filter_rejected_by_minsup + filter_rejected_by_min_attributes +
+                          filter_rejected_by_min_support_count + filter_rejected_by_quadrant +
+                          filter_rejected_by_maxsigx + filter_passed_total;
+
+    fprintf(fp, "========== Filter Statistics ==========\n");
+    fprintf(fp, "Total Evaluated: %d rules\n\n", total_evaluated);
+
+    if (total_evaluated > 0)
+    {
+        fprintf(fp, "Stage 1: Support Rate Filter\n");
+        fprintf(fp, "  Rejected by Minsup:            %10d (%6.2f%%)\n",
+                filter_rejected_by_minsup,
+                100.0 * filter_rejected_by_minsup / total_evaluated);
+        fprintf(fp, "  Rejected by MIN_SUPPORT_COUNT: %10d (%6.2f%%)\n\n",
+                filter_rejected_by_min_support_count,
+                100.0 * filter_rejected_by_min_support_count / total_evaluated);
+
+        fprintf(fp, "Stage 2: Quadrant Filter (MinMax)\n");
+        fprintf(fp, "  Rejected by Quadrant:          %10d (%6.2f%%)\n\n",
+                filter_rejected_by_quadrant,
+                100.0 * filter_rejected_by_quadrant / total_evaluated);
+
+        fprintf(fp, "Stage 3: Variance Filter\n");
+        fprintf(fp, "  Rejected by Maxsigx:           %10d (%6.2f%%)\n\n",
+                filter_rejected_by_maxsigx,
+                100.0 * filter_rejected_by_maxsigx / total_evaluated);
+
+        fprintf(fp, "Final Result:\n");
+        fprintf(fp, "  Passed All Filters:            %10d (%6.2f%%)\n",
+                filter_passed_total,
+                100.0 * filter_passed_total / total_evaluated);
+        fprintf(fp, "========================================\n\n");
+
+        // 統計分析
+        fprintf(fp, "========== Analysis ==========\n");
+        fprintf(fp, "Primary Bottleneck:\n");
+
+        int max_rejected = filter_rejected_by_minsup;
+        const char *bottleneck = "Minsup (Support Rate)";
+
+        if (filter_rejected_by_quadrant > max_rejected)
+        {
+            max_rejected = filter_rejected_by_quadrant;
+            bottleneck = "Quadrant (MinMax Range)";
+        }
+        if (filter_rejected_by_min_support_count > max_rejected)
+        {
+            max_rejected = filter_rejected_by_min_support_count;
+            bottleneck = "MIN_SUPPORT_COUNT";
+        }
+        if (filter_rejected_by_maxsigx > max_rejected)
+        {
+            max_rejected = filter_rejected_by_maxsigx;
+            bottleneck = "Maxsigx (Variance)";
+        }
+
+        fprintf(fp, "  %s\n", bottleneck);
+        fprintf(fp, "  Rejected: %d rules (%.1f%%)\n",
+                max_rejected, 100.0 * max_rejected / total_evaluated);
+        fprintf(fp, "========================================\n");
+    }
+
+    fclose(fp);
+    printf("Filter statistics written to: %s\n", filter_stats_path);
+}
+
 void print_final_statistics()
 {
     int i;
@@ -3094,6 +3317,35 @@ void print_final_statistics()
     printf("  Records: %d\n", Nrd);
     printf("  Attributes: %d\n", Nzk);
     printf("========================================\n");
+
+    /* フィルタ統計 */
+    int total_evaluated = filter_rejected_by_minsup + filter_rejected_by_min_attributes +
+                          filter_rejected_by_min_support_count + filter_rejected_by_quadrant +
+                          filter_rejected_by_maxsigx + filter_passed_total;
+    if (total_evaluated > 0)
+    {
+        printf("\n========== Filter Statistics ==========\n");
+        printf("Total Evaluated: %d rules\n", total_evaluated);
+        printf("  Rejected by Minsup:            %6d (%.1f%%)\n",
+               filter_rejected_by_minsup,
+               100.0 * filter_rejected_by_minsup / total_evaluated);
+        printf("  Rejected by MIN_ATTRIBUTES:    %6d (%.1f%%)\n",
+               filter_rejected_by_min_attributes,
+               100.0 * filter_rejected_by_min_attributes / total_evaluated);
+        printf("  Rejected by MIN_SUPPORT_COUNT: %6d (%.1f%%)\n",
+               filter_rejected_by_min_support_count,
+               100.0 * filter_rejected_by_min_support_count / total_evaluated);
+        printf("  Rejected by Quadrant:          %6d (%.1f%%)\n",
+               filter_rejected_by_quadrant,
+               100.0 * filter_rejected_by_quadrant / total_evaluated);
+        printf("  Rejected by Maxsigx:           %6d (%.1f%%)\n",
+               filter_rejected_by_maxsigx,
+               100.0 * filter_rejected_by_maxsigx / total_evaluated);
+        printf("  Passed All Filters:            %6d (%.1f%%)\n",
+               filter_passed_total,
+               100.0 * filter_passed_total / total_evaluated);
+        printf("========================================\n");
+    }
 
     /* 属性数別ルール統計 */
     printf("Rule Statistics by Attribute Count:\n");
@@ -3245,6 +3497,14 @@ int process_single_stock(const char *code)
         create_initial_population();       // 初期個体群を生成
         create_trial_files(&state);        // 出力ファイルを作成
 
+        // フィルタ統計カウンタをリセット
+        filter_rejected_by_minsup = 0;
+        filter_rejected_by_min_attributes = 0;
+        filter_rejected_by_min_support_count = 0;
+        filter_rejected_by_quadrant = 0;
+        filter_rejected_by_maxsigx = 0;
+        filter_passed_total = 0;
+
         /* ---------- 進化計算ループ ---------- */
         // Generation世代まで進化を実行
         for (gen = 0; gen < Generation; gen++)
@@ -3343,6 +3603,9 @@ int process_single_stock(const char *code)
         printf("  Global pool rules: %d (accumulated)\n", global_rule_count);
         printf("  High-support rules: %d\n", state.high_support_rule_count - 1);
         printf("  Low-variance rules: %d\n", state.low_variance_rule_count - 1);
+
+        // フィルタ統計をファイルに出力
+        write_filter_statistics_to_file();
     }
 
     /* ========== 最終処理 ========== */
