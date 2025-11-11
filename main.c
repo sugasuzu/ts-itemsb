@@ -33,11 +33,11 @@
 
 /* ルールマイニング制約 - Tight Cluster 設定（バランス調整版） */
 #define Minsup 0.001          // 0.1%サポート率（希少パターンOK）
-#define Maxsigx 0.45           // 低分散（密集した小集団）
-#define MIN_ATTRIBUTES 2       // 最小属性数
+#define Maxsigx 0.5           // 低分散（密集した小集団）
+#define MIN_ATTRIBUTES 1       // 最小属性数
 #define Minmean 0.2            // 明確な方向性
-#define MIN_CONCENTRATION 0.5  // 象限集中（50%以上）
-#define MIN_SUPPORT_COUNT 10   // 統計的信頼性（最低10回） 
+#define MIN_CONCENTRATION 0.3  // 象限集中（50%以上）
+#define MIN_SUPPORT_COUNT 15   // 統計的信頼性（最低15回） 
 
 /* 実験パラメータ */
 #define Nrulemax 2002
@@ -45,7 +45,7 @@
 #define Ntry 10
 
 /* GNPパラメータ */
-#define Generation 201
+#define Generation 501
 #define Nkotai 120
 #define Npn 10
 #define Njg 100
@@ -74,35 +74,43 @@
 #define MUTATION_START_40 40
 #define MUTATION_START_80 80
 
-/* 品質判定パラメータ（バランス型に調整） */
+/* 品質判定パラメータ（Tight Cluster Optimization: 小集団・高密集度優先） */
 #define HIGH_SUPPORT_BONUS 0.02
 #define LOW_VARIANCE_REDUCTION 1.0
-#define FITNESS_SUPPORT_WEIGHT 400 // 3 → 400 (133倍: サポート率を重視)
-#define FITNESS_SIGMA_OFFSET 0.30  // 0.50 → 0.30 (分散評価を厳格化)
-#define FITNESS_NEW_RULE_BONUS 50  // 20 → 50 (新規発見の価値向上)
-#define FITNESS_ATTRIBUTE_WEIGHT 2 // 1 → 2 (属性数の重視)
-#define FITNESS_SIGMA_WEIGHT 200   // 8 → 200 (25倍: 分散を重視)
+#define FITNESS_SUPPORT_WEIGHT 50  // 400 → 50 (サポート率の影響を削減)
+#define FITNESS_SIGMA_OFFSET 0.10  // 0.30 → 0.10 (分散評価を敏感に)
+#define FITNESS_NEW_RULE_BONUS 50
+#define FITNESS_ATTRIBUTE_WEIGHT 2
+#define FITNESS_SIGMA_WEIGHT 800   // 200 → 800 (分散を最重視)
 
-/* 象限集中度ボーナス（バランス型: 約1/2.5に縮小） */
-#define CONCENTRATION_THRESHOLD_1 0.35 // 0.40 → 0.35 (MIN_CONCENTRATIONと一致)
+/* 象限集中度ボーナス（バランス調整） */
+#define CONCENTRATION_THRESHOLD_1 0.35
 #define CONCENTRATION_THRESHOLD_2 0.45
 #define CONCENTRATION_THRESHOLD_3 0.50
 #define CONCENTRATION_THRESHOLD_4 0.55
 #define CONCENTRATION_THRESHOLD_5 0.60
 
-#define CONCENTRATION_BONUS_1 200   // 500 → 200
-#define CONCENTRATION_BONUS_2 800   // 2000 → 800
-#define CONCENTRATION_BONUS_3 2500  // 8000 → 2500
-#define CONCENTRATION_BONUS_4 5000  // 15000 → 5000
-#define CONCENTRATION_BONUS_5 10000 // 25000 → 10000
+#define CONCENTRATION_BONUS_1 150   // 200 → 150
+#define CONCENTRATION_BONUS_2 600   // 800 → 600
+#define CONCENTRATION_BONUS_3 1500  // 2500 → 1500
+#define CONCENTRATION_BONUS_4 3000  // 5000 → 3000
+#define CONCENTRATION_BONUS_5 6000  // 10000 → 6000
 
-/* 統計的有意性ボーナス（バランス型: 約1/2に縮小） */
+/* 統計的有意性ボーナス（バランス調整） */
 #define STATISTICAL_SIGNIFICANCE_THRESHOLD_1 0.3
 #define STATISTICAL_SIGNIFICANCE_THRESHOLD_2 0.5
 #define STATISTICAL_SIGNIFICANCE_THRESHOLD_3 0.8
-#define STATISTICAL_SIGNIFICANCE_BONUS_1 1000  // 2000 → 1000
-#define STATISTICAL_SIGNIFICANCE_BONUS_2 4000  // 10000 → 4000
-#define STATISTICAL_SIGNIFICANCE_BONUS_3 10000 // 20000 → 10000
+#define STATISTICAL_SIGNIFICANCE_BONUS_1 800   // 1000 → 800
+#define STATISTICAL_SIGNIFICANCE_BONUS_2 2500  // 4000 → 2500
+#define STATISTICAL_SIGNIFICANCE_BONUS_3 6000  // 10000 → 6000
+
+/* 小集団ボーナス（新規追加: 希少パターンの優遇） */
+#define SMALL_CLUSTER_THRESHOLD_1 0.0020
+#define SMALL_CLUSTER_THRESHOLD_2 0.0015
+#define SMALL_CLUSTER_THRESHOLD_3 0.0010
+#define SMALL_CLUSTER_BONUS_1 300
+#define SMALL_CLUSTER_BONUS_2 600
+#define SMALL_CLUSTER_BONUS_3 1000
 
 /* レポート間隔 */
 #define REPORT_INTERVAL 5
@@ -259,6 +267,7 @@ double calculate_concentration_ratio(int *quadrant_counts);
 static double calculate_standard_deviation(double sum, double sum_of_squares, int count);
 
 static double calculate_significance_bonus(double mean_value);
+static double calculate_small_cluster_bonus(double support);
 static double calculate_concentration_fitness_bonus(double concentration_ratio);
 
 /* ヘルパー関数実装 */
@@ -449,6 +458,18 @@ static double calculate_significance_bonus(double mean_value)
         return STATISTICAL_SIGNIFICANCE_BONUS_2;
     if (abs_mean >= STATISTICAL_SIGNIFICANCE_THRESHOLD_1)
         return STATISTICAL_SIGNIFICANCE_BONUS_1;
+
+    return 0.0;
+}
+
+static double calculate_small_cluster_bonus(double support)
+{
+    if (support <= SMALL_CLUSTER_THRESHOLD_3)
+        return SMALL_CLUSTER_BONUS_3;
+    if (support <= SMALL_CLUSTER_THRESHOLD_2)
+        return SMALL_CLUSTER_BONUS_2;
+    if (support <= SMALL_CLUSTER_THRESHOLD_1)
+        return SMALL_CLUSTER_BONUS_1;
 
     return 0.0;
 }
@@ -2156,13 +2177,17 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
                         significance_bonus = calculate_significance_bonus(max_abs_mean);
 
-                        // 適応度を更新（新規ルールボーナス + 象限集中度ボーナス + 統計的有意性ボーナス付き）
+                        /* 小集団ボーナスを計算（Tight Cluster Optimization: 希少パターンの優遇） */
+                        double small_cluster_bonus = calculate_small_cluster_bonus(support);
+
+                        // 適応度を更新（新規ルールボーナス + 象限集中度ボーナス + 統計的有意性ボーナス + 小集団ボーナス）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            concentration_bonus + // ← 象限集中度ボーナス（視覚化目標）
-                            significance_bonus +  // ← 統計的有意性ボーナス（研究目標）
+                            concentration_bonus +     // ← 象限集中度ボーナス（視覚化目標）
+                            significance_bonus +      // ← 統計的有意性ボーナス（研究目標）
+                            small_cluster_bonus +     // ← 小集団ボーナス（密集度優先）
                             FITNESS_NEW_RULE_BONUS;
 
                         // 属性使用履歴を更新
@@ -2221,6 +2246,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 統計的有意性に応じてボーナス付与（Phase 5: Refactoring - 関数使用）
                         significance_bonus = calculate_significance_bonus(max_abs_mean);
 
+                        /* 小集団ボーナスを計算（Tight Cluster Optimization: 希少パターンの優遇） */
+                        double small_cluster_bonus_dup = calculate_small_cluster_bonus(support);
+
                         // 【デバッグ】最初の10個の高集中度ルールのみログ出力
                         static int debug_count = 0;
                         if (debug_count < 10 && concentration_ratio >= 0.45)
@@ -2236,13 +2264,14 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             debug_count++;
                         }
 
-                        // 重複ルールの場合（新規ボーナスなし、象限集中度・統計的有意性ボーナスあり）
+                        // 重複ルールの場合（新規ボーナスなし、象限集中度・統計的有意性・小集団ボーナスあり）
                         fitness_value[individual] +=
                             j2 * FITNESS_ATTRIBUTE_WEIGHT +
                             support * FITNESS_SUPPORT_WEIGHT +
                             FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) +
-                            concentration_bonus + // ← 象限集中度ボーナス（視覚化目標）
-                            significance_bonus;   // ← 統計的有意性ボーナス（研究目標）
+                            concentration_bonus +       // ← 象限集中度ボーナス（視覚化目標）
+                            significance_bonus +        // ← 統計的有意性ボーナス（研究目標）
+                            small_cluster_bonus_dup;    // ← 小集団ボーナス（密集度優先）
                     }
 
                     // ルール数上限チェック
