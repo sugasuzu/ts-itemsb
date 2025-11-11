@@ -22,7 +22,7 @@ BASE_DIR = Path("1-deta-enginnering/forex_data_daily")
 OUTPUT_DIR = BASE_DIR / "output/USDJPY"
 VERIFICATION_DIR = OUTPUT_DIR / "verification"
 RULES_FILE = OUTPUT_DIR / "pool/zrp01a.txt"
-SCATTER_DIR = OUTPUT_DIR / "scatter_plots_03"
+SCATTER_DIR = OUTPUT_DIR / "scatter_plots_04"
 
 # Data file for background scatter
 DATA_FILE = BASE_DIR / "USDJPY.txt"
