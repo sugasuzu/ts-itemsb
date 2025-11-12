@@ -34,7 +34,7 @@
 #define Minsup 0.003                 // 0.3% サポート率（全マッチベース）
 #define MIN_SUPPORT_COUNT 20         // 統計的信頼性（最低20回マッチ）
 #define QUADRANT_THRESHOLD_RATE 0.50 // 50% 象限集中率（全マッチポイントの50%以上が同じ象限）
-#define DEVIATION_THRESHOLD 1.0      // 変化率1.0の逸脱許容（支配象限から反対方向への最大許容逸脱）
+#define DEVIATION_THRESHOLD 0.5      // 変化率0.5の逸脱許容（支配象限から反対方向への最大許容逸脱）
 #define Maxsigx 999.0                // 最大標準偏差（無効化：事実上全て通過）
 
 #define MIN_ATTRIBUTES 1 // 最小属性数 使わないから後で削除
