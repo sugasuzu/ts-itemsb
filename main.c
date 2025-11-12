@@ -30,11 +30,12 @@
 #define CONT_FILE "output/doc/zrd01.txt"
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
-/* ルールマイニング制約 - 4象限MinMax方式 */
-#define Minsup 0.005           // 0.5 サポート率
-#define QUADRANT_THRESHOLD 0.5 // 0.5% 象限判定閾値（またぎ許容量）
-#define Maxsigx 0.1            // 最大標準偏差
-#define MIN_SUPPORT_COUNT 20   // 統計的信頼性（最低20回）
+/* ルールマイニング制約 - 象限内ポイント集中方式（v4.0） */
+#define Minsup 0.005                 // 0.5% サポート率（象限内ポイントで計算）
+#define MIN_SUPPORT_COUNT 20         // 統計的信頼性（象限内で最低20回）
+#define QUADRANT_THRESHOLD 0.2       // 0.2%の実値（象限判定閾値）
+#define QUADRANT_THRESHOLD_RATE 0.50 // 50% 象限集中率（象限内ポイントの50%以上が同じ象限）
+#define Maxsigx 999.0                // 最大標準偏差（無効化：事実上全て通過）
 
 #define MIN_ATTRIBUTES 1 // 最小属性数 使わないから後で削除
 
@@ -48,7 +49,7 @@
 #define Ntry 1
 
 /* GNPパラメータ */
-#define Generation 1001
+#define Generation 201
 #define Nkotai 120
 #define Npn 10
 #define Njg 100
@@ -215,8 +216,11 @@ int filter_rejected_by_minsup = 0;
 int filter_rejected_by_min_attributes = 0;
 int filter_rejected_by_min_support_count = 0;
 int filter_rejected_by_quadrant = 0;
+int filter_rejected_by_quadrant_threshold = 0; // QUADRANT_THRESHOLDで却下（個別マッチが閾値未満）
+int filter_rejected_by_quadrant_rate = 0;      // QUADRANT_THRESHOLD_RATEで却下（集中率不足）
 int filter_rejected_by_maxsigx = 0;
 int filter_passed_total = 0;
+int filter_passed_duplicates = 0; // フィルター通過したが重複していたルール数
 
 int rules_per_trial[Ntry];
 int new_rule_marker[Nrulemax];
@@ -249,6 +253,12 @@ static double calculate_standard_deviation(double sum, double sum_of_squares, in
 static double calculate_minimum_return(int *matched_indices, int match_count, int span_offset);
 static double calculate_maximum_return(int *matched_indices, int match_count, int span_offset);
 static int determine_quadrant(double min_t1, double max_t1, double min_t2, double max_t2);
+
+/* 割合ベース象限判定関数（v3.0） */
+static int determine_quadrant_by_rate(int *matched_indices, int match_count);
+static int determine_quadrant_by_rate_with_concentration(int *matched_indices, int match_count, double *concentration_out, int *in_quadrant_count_out);
+static int rematch_rule_pattern(int *rule_attributes, int *time_delays, int num_attributes, int *matched_indices_out);
+void get_safe_data_range(int *safe_start, int *safe_end);
 
 /* ヘルパー関数実装 */
 
@@ -476,6 +486,226 @@ static int determine_quadrant(double min_t1, double max_t1, double min_t2, doubl
         return 4; // Q4: t+1正, t+2負 (+-)
 
     return 0; // centerがゼロ付近（稀なケース）
+}
+
+/* 割合ベース象限判定（v3.0）- 実際に各マッチを数える */
+static int determine_quadrant_by_rate(int *matched_indices, int match_count)
+{
+    int quadrant_counts[4] = {0, 0, 0, 0}; // Q1, Q2, Q3, Q4
+    int i;
+    double future_t1, future_t2;
+    int total_valid_matches = 0; // NaN以外の有効なマッチ数
+    int in_quadrant_matches = 0; // 象限内に入ったマッチ数
+
+    /* 各マッチが属する象限を集計 */
+    for (i = 0; i < match_count; i++)
+    {
+        future_t1 = get_future_value(matched_indices[i], 1); // t+1
+        future_t2 = get_future_value(matched_indices[i], 2); // t+2
+
+        if (isnan(future_t1) || isnan(future_t2))
+            continue;
+
+        total_valid_matches++; // 有効なマッチをカウント
+
+        /* 象限を判定（閾値ベース） */
+        if (future_t1 >= QUADRANT_THRESHOLD && future_t2 >= QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[0]++; // Q1 (++)
+            in_quadrant_matches++;
+        }
+        else if (future_t1 < -QUADRANT_THRESHOLD && future_t2 >= QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[1]++; // Q2 (-+)
+            in_quadrant_matches++;
+        }
+        else if (future_t1 < -QUADRANT_THRESHOLD && future_t2 < -QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[2]++; // Q3 (--)
+            in_quadrant_matches++;
+        }
+        else if (future_t1 >= QUADRANT_THRESHOLD && future_t2 < -QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[3]++; // Q4 (+-)
+            in_quadrant_matches++;
+        }
+        // それ以外（-QUADRANT_THRESHOLD ～ +QUADRANT_THRESHOLD の範囲）はカウントしない
+    }
+
+    /* 有効なマッチがない場合は却下 */
+    if (total_valid_matches == 0)
+        return 0;
+
+    /* 象限内マッチが少ない場合は QUADRANT_THRESHOLD で却下 */
+    if (in_quadrant_matches == 0)
+    {
+        filter_rejected_by_quadrant_threshold++;
+        return 0;
+    }
+
+    /* 最も多い象限を見つける */
+    int max_count = 0;
+    int dominant_quadrant = 0;
+
+    for (i = 0; i < 4; i++)
+    {
+        if (quadrant_counts[i] > max_count)
+        {
+            max_count = quadrant_counts[i];
+            dominant_quadrant = i + 1; // 1-indexed (Q1=1, Q2=2, Q3=3, Q4=4)
+        }
+    }
+
+    /* 割合をチェック（有効マッチ数に対する割合） */
+    double concentration_rate = (double)max_count / (double)total_valid_matches;
+
+    if (concentration_rate >= QUADRANT_THRESHOLD_RATE)
+    {
+        return dominant_quadrant; // Q1, Q2, Q3, or Q4
+    }
+
+    /* 集中率不足で却下 */
+    filter_rejected_by_quadrant_rate++;
+    return 0;
+}
+
+/* 割合ベース象限判定（集中率も返すバージョン） */
+static int determine_quadrant_by_rate_with_concentration(int *matched_indices, int match_count, double *concentration_out, int *in_quadrant_count_out)
+{
+    int quadrant_counts[4] = {0, 0, 0, 0}; // Q1, Q2, Q3, Q4
+    int i;
+    double future_t1, future_t2;
+    int total_valid_matches = 0;
+    int in_quadrant_matches = 0;
+
+    /* 各マッチが属する象限を集計 */
+    for (i = 0; i < match_count; i++)
+    {
+        future_t1 = get_future_value(matched_indices[i], 1);
+        future_t2 = get_future_value(matched_indices[i], 2);
+
+        if (isnan(future_t1) || isnan(future_t2))
+            continue;
+
+        total_valid_matches++;
+
+        if (future_t1 >= QUADRANT_THRESHOLD && future_t2 >= QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[0]++;
+            in_quadrant_matches++;
+        }
+        else if (future_t1 < -QUADRANT_THRESHOLD && future_t2 >= QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[1]++;
+            in_quadrant_matches++;
+        }
+        else if (future_t1 < -QUADRANT_THRESHOLD && future_t2 < -QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[2]++;
+            in_quadrant_matches++;
+        }
+        else if (future_t1 >= QUADRANT_THRESHOLD && future_t2 < -QUADRANT_THRESHOLD)
+        {
+            quadrant_counts[3]++;
+            in_quadrant_matches++;
+        }
+    }
+
+    /* 象限内マッチ数を返す */
+    if (in_quadrant_count_out != NULL)
+    {
+        *in_quadrant_count_out = in_quadrant_matches;
+    }
+
+    if (total_valid_matches == 0)
+    {
+        *concentration_out = 0.0;
+        return 0;
+    }
+
+    if (in_quadrant_matches == 0)
+    {
+        *concentration_out = 0.0;
+        filter_rejected_by_quadrant_threshold++;
+        return 0;
+    }
+
+    /* 最も多い象限を見つける */
+    int max_count = 0;
+    int dominant_quadrant = 0;
+
+    for (i = 0; i < 4; i++)
+    {
+        if (quadrant_counts[i] > max_count)
+        {
+            max_count = quadrant_counts[i];
+            dominant_quadrant = i + 1;
+        }
+    }
+
+    /* 集中率を計算して返す（NEW: 象限内ポイントのみで計算） */
+    double concentration_rate = (double)max_count / (double)in_quadrant_matches;
+    *concentration_out = concentration_rate;
+
+    if (concentration_rate >= QUADRANT_THRESHOLD_RATE)
+    {
+        return dominant_quadrant;
+    }
+
+    filter_rejected_by_quadrant_rate++;
+    return 0;
+}
+
+/* ルールパターンを再マッチングして matched_indices を取得するヘルパー関数 */
+static int rematch_rule_pattern(int *rule_attributes, int *time_delays, int num_attributes, int *matched_indices_out)
+{
+    int matched_count = 0;
+    int time_index, attr_idx, is_match;
+    int safe_start, safe_end;
+
+    /* 安全な範囲を取得（未来予測値が取得できる範囲に限定） */
+    get_safe_data_range(&safe_start, &safe_end);
+
+    /* 安全範囲のデータポイントのみをスキャン */
+    for (time_index = safe_start; time_index < safe_end; time_index++)
+    {
+        is_match = 1;
+
+        /* 各属性をチェック */
+        for (attr_idx = 0; attr_idx < num_attributes; attr_idx++)
+        {
+            if (rule_attributes[attr_idx] > 0)
+            {
+                /* 属性ID（1-indexed → 0-indexed に変換） */
+                int attr_id = rule_attributes[attr_idx] - 1;
+                int delay = time_delays[attr_idx];
+                int data_index = time_index - delay;
+
+                /* 範囲チェック */
+                if (data_index < 0 || data_index >= Nrd)
+                {
+                    is_match = 0;
+                    break;
+                }
+
+                /* 属性値チェック（1である必要がある） */
+                if (data_buffer[data_index][attr_id] != 1)
+                {
+                    is_match = 0;
+                    break;
+                }
+            }
+        }
+
+        /* マッチした場合、インデックスを保存 */
+        if (is_match == 1)
+        {
+            matched_indices_out[matched_count] = time_index;
+            matched_count++;
+        }
+    }
+
+    return matched_count;
 }
 
 void allocate_future_arrays()
@@ -1904,27 +2134,15 @@ double calculate_concentration_ratio(int *quadrant_counts)
 
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        double support, int num_attributes,
-                       double *future_min_array, double *future_max_array, int matched_count)
+                       double *future_min_array, double *future_max_array, int matched_count,
+                       int *rule_attributes, int *time_delays)
 {
-    double min_t1, max_t1, min_t2, max_t2;
     int quadrant;
     int i;
     static int debug_sample_count = 0;
     int should_debug = (debug_sample_count < 50); // 最初の50件のみデバッグ出力
 
-    /* Stage 1: サポート率チェック */
-    if (support < Minsup)
-    {
-        filter_rejected_by_minsup++;
-        if (should_debug)
-        {
-            fprintf(stderr, "[FILTER] Rejected by Minsup: support=%.4f%% < Minsup=%.4f%%\n",
-                    support, Minsup);
-            debug_sample_count++;
-        }
-        return 0;
-    }
-
+    /* 最小属性数チェック（事前チェック） */
     if (num_attributes < MIN_ATTRIBUTES)
     {
         filter_rejected_by_min_attributes++;
@@ -1937,38 +2155,74 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
         return 0;
     }
 
-    if (matched_count < MIN_SUPPORT_COUNT)
+    /* Stage 1: 象限判定（NEW: 集中度を先にチェック） */
+    // マッチングを再実行して matched_indices を取得
+    int *matched_indices = (int *)malloc(Nrd * sizeof(int));
+    if (matched_indices == NULL)
     {
-        filter_rejected_by_min_support_count++;
-        if (should_debug)
-        {
-            fprintf(stderr, "[FILTER] Rejected by MIN_SUPPORT_COUNT: count=%d < MIN=%d\n",
-                    matched_count, MIN_SUPPORT_COUNT);
-            debug_sample_count++;
-        }
+        fprintf(stderr, "[ERROR] Failed to allocate memory for matched_indices\n");
         return 0;
     }
 
-    /* Stage 2: 象限判定（MinMaxベース） */
-    // すでに計算済みのMin/Maxを使用
-    min_t1 = future_min_array[0]; // t+1 (offset=0)
-    max_t1 = future_max_array[0];
-    min_t2 = future_min_array[1]; // t+2 (offset=1)
-    max_t2 = future_max_array[1];
+    int actual_matched_count = rematch_rule_pattern(rule_attributes, time_delays, num_attributes, matched_indices);
 
-    // 象限判定
-    quadrant = determine_quadrant(min_t1, max_t1, min_t2, max_t2);
+    // マッチ数の整合性チェック（デバッグ用）
+    if (actual_matched_count != matched_count && should_debug)
+    {
+        fprintf(stderr, "[WARNING] Match count mismatch: expected=%d, actual=%d\n",
+                matched_count, actual_matched_count);
+    }
+
+    // 集中度と象限内マッチ数を計算
+    double concentration_rate = 0.0;
+    int in_quadrant_count = 0;
+
+    quadrant = determine_quadrant_by_rate_with_concentration(matched_indices, actual_matched_count, &concentration_rate, &in_quadrant_count);
+
     if (quadrant == 0)
     {
         filter_rejected_by_quadrant++;
         if (should_debug)
         {
-            fprintf(stderr, "[FILTER] Rejected by Quadrant: min_t1=%.4f%%, max_t1=%.4f%%, min_t2=%.4f%%, max_t2=%.4f%% (threshold=%.4f%%)\n",
-                    min_t1, max_t1, min_t2, max_t2, QUADRANT_THRESHOLD);
-            fprintf(stderr, "  → Mixed quadrant (not consistent)\n");
+            fprintf(stderr, "[FILTER] Rejected by Quadrant: concentration rate=%.1f%% < threshold=%.1f%%\n",
+                    concentration_rate * 100.0, QUADRANT_THRESHOLD_RATE * 100.0);
+            fprintf(stderr, "  In-quadrant matches: %d / All matches: %d\n",
+                    in_quadrant_count, actual_matched_count);
             debug_sample_count++;
         }
-        return 0; // 複数象限にまたがる → 除外
+        free(matched_indices); // メモリ解放
+        return 0;              // 集中率が閾値未満 → 除外
+    }
+
+    free(matched_indices); // メモリ解放
+
+    /* Stage 2: 象限内サポート率チェック（NEW: 象限内ポイントのみでサポート計算） */
+    double in_quadrant_support = (double)in_quadrant_count / (double)Nrd;
+
+    if (in_quadrant_support < Minsup)
+    {
+        filter_rejected_by_minsup++;
+        if (should_debug)
+        {
+            fprintf(stderr, "[FILTER] Rejected by In-Quadrant Support: %.4f%% < Minsup=%.4f%%\n",
+                    in_quadrant_support * 100.0, Minsup * 100.0);
+            fprintf(stderr, "  In-quadrant matches: %d, All matches: %d\n",
+                    in_quadrant_count, actual_matched_count);
+            debug_sample_count++;
+        }
+        return 0;
+    }
+
+    if (in_quadrant_count < MIN_SUPPORT_COUNT)
+    {
+        filter_rejected_by_min_support_count++;
+        if (should_debug)
+        {
+            fprintf(stderr, "[FILTER] Rejected by MIN_SUPPORT_COUNT: in-quadrant count=%d < MIN=%d\n",
+                    in_quadrant_count, MIN_SUPPORT_COUNT);
+            debug_sample_count++;
+        }
+        return 0;
     }
 
     /* Stage 3: 分散チェック（全未来スパン） */
@@ -1991,11 +2245,11 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     filter_passed_total++;
     if (should_debug)
     {
-        fprintf(stderr, "[FILTER] ✓ PASSED: support=%.4f%%, attrs=%d, count=%d, quadrant=Q%d, mean_t1=%.4f%%, sigma_t1=%.4f%%\n",
-                support, num_attributes, matched_count, quadrant,
+        fprintf(stderr, "[FILTER] ✓ PASSED: in-quadrant support=%.4f%%, concentration=%.1f%%, attrs=%d, quadrant=Q%d\n",
+                in_quadrant_support * 100.0, concentration_rate * 100.0, num_attributes, quadrant);
+        fprintf(stderr, "  In-quadrant matches: %d, All matches: %d, mean_t1=%.4f%%, sigma_t1=%.4f%%\n",
+                in_quadrant_count, actual_matched_count,
                 future_mean_array[0], future_sigma_array[0]);
-        fprintf(stderr, "  Min/Max: t+1[%.4f%%, %.4f%%], t+2[%.4f%%, %.4f%%]\n",
-                min_t1, max_t1, min_t2, max_t2);
         debug_sample_count++;
     }
     return 1;
@@ -2250,12 +2504,15 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
 
             // ルールの品質チェック（サポート率、標準偏差、属性数、Min/Max象限判定、最小マッチ数をチェック）
             if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
-                                   future_min_ptr, future_max_ptr, matched_count))
+                                   future_min_ptr, future_max_ptr, matched_count,
+                                   rule_candidate, time_delay_memo))
             {
                 if (j2 < 9 && j2 >= MIN_ATTRIBUTES)
                 {
                     // 重複チェック
-                    if (!check_rule_duplication(rule_candidate, state->rule_count))
+                    int is_duplicate = check_rule_duplication(rule_candidate, state->rule_count);
+
+                    if (!is_duplicate)
                     {
                         // 新規ルールとして登録
                         register_new_rule(state, rule_candidate, time_delay_memo,
@@ -2268,13 +2525,27 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
 
-                        // 適応度を更新（original code準拠: 5要素）
+                        // 集中率と象限内マッチ数を計算（新しい適応度関数用）
+                        int *matched_indices_for_conc = (int *)malloc(Nrd * sizeof(int));
+                        double concentration_rate = 0.0;
+                        int in_quadrant_count = 0;
+
+                        if (matched_indices_for_conc != NULL)
+                        {
+                            int actual_matched = rematch_rule_pattern(rule_candidate, time_delay_memo, j2, matched_indices_for_conc);
+                            int quadrant_dummy = determine_quadrant_by_rate_with_concentration(matched_indices_for_conc, actual_matched, &concentration_rate, &in_quadrant_count);
+                            (void)quadrant_dummy; // 未使用変数警告回避
+                            free(matched_indices_for_conc);
+                        }
+
+                        // 象限内サポート率を計算（NEW: 象限内マッチのみでサポート計算）
+                        double in_quadrant_support = (double)in_quadrant_count / (double)Nrd;
+
+                        // 適応度を更新（新方式: 象限内support と concentration のみ）
                         fitness_value[individual] +=
-                            j2 +                                                                  // 属性数
-                            support * FITNESS_SUPPORT_WEIGHT +                                    // Support
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) + // t+1分散
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[1] + FITNESS_SIGMA_OFFSET) + // t+2分散
-                            FITNESS_NEW_RULE_BONUS;                                               // 新規ルールボーナス
+                            in_quadrant_support * 10.0 + // 象限内サポート率（10倍重み）
+                            concentration_rate * 100.0 +  // 集中率（100倍重み、0.2 → 20点）
+                            20.0;                         // 新規ルールボーナス
 
                         // 属性使用履歴を更新
                         for (k3 = 0; k3 < j2; k3++)
@@ -2291,11 +2562,28 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     else
                     {
                         // 重複ルールの場合（新規ボーナスなし）
+                        filter_passed_duplicates++; // 重複カウント
+
+                        // 集中率と象限内マッチ数を計算
+                        int *matched_indices_for_conc = (int *)malloc(Nrd * sizeof(int));
+                        double concentration_rate = 0.0;
+                        int in_quadrant_count = 0;
+
+                        if (matched_indices_for_conc != NULL)
+                        {
+                            int actual_matched = rematch_rule_pattern(rule_candidate, time_delay_memo, j2, matched_indices_for_conc);
+                            int quadrant_dummy = determine_quadrant_by_rate_with_concentration(matched_indices_for_conc, actual_matched, &concentration_rate, &in_quadrant_count);
+                            (void)quadrant_dummy;
+                            free(matched_indices_for_conc);
+                        }
+
+                        // 象限内サポート率を計算
+                        double in_quadrant_support = (double)in_quadrant_count / (double)Nrd;
+
+                        // 適応度を更新（新規ボーナスなし）
                         fitness_value[individual] +=
-                            j2 +                                                                  // 属性数
-                            support * FITNESS_SUPPORT_WEIGHT +                                    // Support
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[0] + FITNESS_SIGMA_OFFSET) + // t+1分散
-                            FITNESS_SIGMA_WEIGHT / (future_sigma_ptr[1] + FITNESS_SIGMA_OFFSET);  // t+2分散
+                            in_quadrant_support * 10.0 + // 象限内サポート率
+                            concentration_rate * 100.0;   // 集中率
                     }
 
                     // ルール数上限チェック
@@ -3221,9 +3509,10 @@ void write_filter_statistics_to_file()
 
     // 閾値設定
     fprintf(fp, "========== Threshold Settings ==========\n");
-    fprintf(fp, "Minsup (Support Rate):         %.4f%%\n", Minsup);
-    fprintf(fp, "QUADRANT_THRESHOLD:            %.4f%%\n", QUADRANT_THRESHOLD);
-    fprintf(fp, "Maxsigx (Max Std Dev):         %.4f%%\n", Maxsigx);
+    fprintf(fp, "Minsup (Support Rate):         %.4f%%\n", Minsup * 100.0);
+    fprintf(fp, "QUADRANT_THRESHOLD:            %.4f%%\n", QUADRANT_THRESHOLD * 100.0);
+    fprintf(fp, "QUADRANT_THRESHOLD_RATE:       %.1f%%\n", QUADRANT_THRESHOLD_RATE * 100.0);
+    fprintf(fp, "Maxsigx (Max Std Dev):         %.4f%%\n", Maxsigx * 100.0);
     fprintf(fp, "MIN_SUPPORT_COUNT:             %d\n", MIN_SUPPORT_COUNT);
     fprintf(fp, "========================================\n\n");
 
@@ -3245,10 +3534,16 @@ void write_filter_statistics_to_file()
                 filter_rejected_by_min_support_count,
                 100.0 * filter_rejected_by_min_support_count / total_evaluated);
 
-        fprintf(fp, "Stage 2: Quadrant Filter (MinMax)\n");
-        fprintf(fp, "  Rejected by Quadrant:          %10d (%6.2f%%)\n\n",
+        fprintf(fp, "Stage 2: Quadrant Filter (Ratio-Based)\n");
+        fprintf(fp, "  Rejected by Quadrant (total):  %10d (%6.2f%%)\n",
                 filter_rejected_by_quadrant,
                 100.0 * filter_rejected_by_quadrant / total_evaluated);
+        fprintf(fp, "    - By QUADRANT_THRESHOLD:     %10d (%6.2f%%)\n",
+                filter_rejected_by_quadrant_threshold,
+                100.0 * filter_rejected_by_quadrant_threshold / total_evaluated);
+        fprintf(fp, "    - By QUADRANT_THRESHOLD_RATE:%10d (%6.2f%%)\n\n",
+                filter_rejected_by_quadrant_rate,
+                100.0 * filter_rejected_by_quadrant_rate / total_evaluated);
 
         fprintf(fp, "Stage 3: Variance Filter\n");
         fprintf(fp, "  Rejected by Maxsigx:           %10d (%6.2f%%)\n\n",
@@ -3256,9 +3551,11 @@ void write_filter_statistics_to_file()
                 100.0 * filter_rejected_by_maxsigx / total_evaluated);
 
         fprintf(fp, "Final Result:\n");
-        fprintf(fp, "  Passed All Filters:            %10d (%6.2f%%)\n",
+        fprintf(fp, "  Passed All Filters (total):    %10d (%6.2f%%)\n",
                 filter_passed_total,
                 100.0 * filter_passed_total / total_evaluated);
+        fprintf(fp, "    - Unique rules:              %10d\n", filter_passed_total - filter_passed_duplicates);
+        fprintf(fp, "    - Duplicates:                %10d\n", filter_passed_duplicates);
         fprintf(fp, "========================================\n\n");
 
         // 統計分析
@@ -3335,15 +3632,23 @@ void print_final_statistics()
         printf("  Rejected by MIN_SUPPORT_COUNT: %6d (%.1f%%)\n",
                filter_rejected_by_min_support_count,
                100.0 * filter_rejected_by_min_support_count / total_evaluated);
-        printf("  Rejected by Quadrant:          %6d (%.1f%%)\n",
+        printf("  Rejected by Quadrant (total):  %6d (%.1f%%)\n",
                filter_rejected_by_quadrant,
                100.0 * filter_rejected_by_quadrant / total_evaluated);
+        printf("    - By QUADRANT_THRESHOLD:     %6d (%.1f%%)\n",
+               filter_rejected_by_quadrant_threshold,
+               100.0 * filter_rejected_by_quadrant_threshold / total_evaluated);
+        printf("    - By QUADRANT_THRESHOLD_RATE:%6d (%.1f%%)\n",
+               filter_rejected_by_quadrant_rate,
+               100.0 * filter_rejected_by_quadrant_rate / total_evaluated);
         printf("  Rejected by Maxsigx:           %6d (%.1f%%)\n",
                filter_rejected_by_maxsigx,
                100.0 * filter_rejected_by_maxsigx / total_evaluated);
-        printf("  Passed All Filters:            %6d (%.1f%%)\n",
+        printf("  Passed All Filters (total):    %6d (%.1f%%)\n",
                filter_passed_total,
                100.0 * filter_passed_total / total_evaluated);
+        printf("    - Unique rules:              %6d\n", filter_passed_total - filter_passed_duplicates);
+        printf("    - Duplicates:                %6d\n", filter_passed_duplicates);
         printf("========================================\n");
     }
 
@@ -3504,6 +3809,7 @@ int process_single_stock(const char *code)
         filter_rejected_by_quadrant = 0;
         filter_rejected_by_maxsigx = 0;
         filter_passed_total = 0;
+        filter_passed_duplicates = 0;
 
         /* ---------- 進化計算ループ ---------- */
         // Generation世代まで進化を実行
