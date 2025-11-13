@@ -31,7 +31,7 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 象限集中方式（v5.0 - シンプル化：0ベース象限判定） */
-#define Minsup 0.003           // 最小支持度
+#define Minsup 0.005           // 最小支持度
 #define MIN_CONCENTRATION 0.50 // 最小集中率：支配象限への集中度（割合）
 #define MAX_DEVIATION 0.5      // 最大逸脱率：象限境界からの許容誤差
 
@@ -41,11 +41,11 @@
 /* 実験パラメータ */
 #define Nrulemax 2002
 #define Nstart 1000
-#define Ntry 1
+#define Ntry 10
 
 /* GNPパラメータ */
 #define Generation 201
-#define Nkotai 120
+#define Nkotai 240
 #define Npn 10
 #define Njg 100
 #define Nmx 7
@@ -177,11 +177,6 @@ double ****future_sum = NULL;
 double ****future_sigma_array = NULL;
 double ****future_min = NULL;
 double ****future_max = NULL;
-
-double ****future_positive_sum = NULL;
-double ****future_negative_sum = NULL;
-int ****future_positive_count = NULL;
-int ****future_negative_count = NULL;
 
 int ****quadrant_count = NULL;
 
@@ -333,19 +328,6 @@ static void accumulate_future_statistics(int individual, int k, int depth, int t
         {
             future_max[individual][k][depth][offset] = future_val;
         }
-
-        /* 方向性分離統計の累積 */
-        if (future_val > 0.0)
-        {
-            future_positive_sum[individual][k][depth][offset] += future_val;
-            future_positive_count[individual][k][depth][offset]++;
-        }
-        else if (future_val < 0.0)
-        {
-            future_negative_sum[individual][k][depth][offset] += future_val;
-            future_negative_count[individual][k][depth][offset]++;
-        }
-        /* future_val == 0.0 の場合は何もしない */
     }
 }
 
@@ -759,158 +741,6 @@ void allocate_future_arrays()
         }
     }
 
-    /* future_positive_sum配列の割り当て（方向性分離統計） */
-    future_positive_sum = (double ****)malloc(Nkotai * sizeof(double ***));
-    if (future_positive_sum == NULL)
-    {
-        fprintf(stderr, "ERROR: Failed to allocate future_positive_sum (dimension 1)\n");
-        exit(1);
-    }
-
-    for (i = 0; i < Nkotai; i++)
-    {
-        future_positive_sum[i] = (double ***)malloc(Npn * sizeof(double **));
-        if (future_positive_sum[i] == NULL)
-        {
-            fprintf(stderr, "ERROR: Failed to allocate future_positive_sum (dimension 2)\n");
-            exit(1);
-        }
-
-        for (j = 0; j < Npn; j++)
-        {
-            future_positive_sum[i][j] = (double **)malloc(MAX_DEPTH * sizeof(double *));
-            if (future_positive_sum[i][j] == NULL)
-            {
-                fprintf(stderr, "ERROR: Failed to allocate future_positive_sum (dimension 3)\n");
-                exit(1);
-            }
-
-            for (k = 0; k < MAX_DEPTH; k++)
-            {
-                future_positive_sum[i][j][k] = (double *)calloc(FUTURE_SPAN, sizeof(double));
-                if (future_positive_sum[i][j][k] == NULL)
-                {
-                    fprintf(stderr, "ERROR: Failed to allocate future_positive_sum (dimension 4)\n");
-                    exit(1);
-                }
-            }
-        }
-    }
-
-    /* future_negative_sum配列の割り当て（方向性分離統計） */
-    future_negative_sum = (double ****)malloc(Nkotai * sizeof(double ***));
-    if (future_negative_sum == NULL)
-    {
-        fprintf(stderr, "ERROR: Failed to allocate future_negative_sum (dimension 1)\n");
-        exit(1);
-    }
-
-    for (i = 0; i < Nkotai; i++)
-    {
-        future_negative_sum[i] = (double ***)malloc(Npn * sizeof(double **));
-        if (future_negative_sum[i] == NULL)
-        {
-            fprintf(stderr, "ERROR: Failed to allocate future_negative_sum (dimension 2)\n");
-            exit(1);
-        }
-
-        for (j = 0; j < Npn; j++)
-        {
-            future_negative_sum[i][j] = (double **)malloc(MAX_DEPTH * sizeof(double *));
-            if (future_negative_sum[i][j] == NULL)
-            {
-                fprintf(stderr, "ERROR: Failed to allocate future_negative_sum (dimension 3)\n");
-                exit(1);
-            }
-
-            for (k = 0; k < MAX_DEPTH; k++)
-            {
-                future_negative_sum[i][j][k] = (double *)calloc(FUTURE_SPAN, sizeof(double));
-                if (future_negative_sum[i][j][k] == NULL)
-                {
-                    fprintf(stderr, "ERROR: Failed to allocate future_negative_sum (dimension 4)\n");
-                    exit(1);
-                }
-            }
-        }
-    }
-
-    /* future_positive_count配列の割り当て（方向性分離統計・int型） */
-    future_positive_count = (int ****)malloc(Nkotai * sizeof(int ***));
-    if (future_positive_count == NULL)
-    {
-        fprintf(stderr, "ERROR: Failed to allocate future_positive_count (dimension 1)\n");
-        exit(1);
-    }
-
-    for (i = 0; i < Nkotai; i++)
-    {
-        future_positive_count[i] = (int ***)malloc(Npn * sizeof(int **));
-        if (future_positive_count[i] == NULL)
-        {
-            fprintf(stderr, "ERROR: Failed to allocate future_positive_count (dimension 2)\n");
-            exit(1);
-        }
-
-        for (j = 0; j < Npn; j++)
-        {
-            future_positive_count[i][j] = (int **)malloc(MAX_DEPTH * sizeof(int *));
-            if (future_positive_count[i][j] == NULL)
-            {
-                fprintf(stderr, "ERROR: Failed to allocate future_positive_count (dimension 3)\n");
-                exit(1);
-            }
-
-            for (k = 0; k < MAX_DEPTH; k++)
-            {
-                future_positive_count[i][j][k] = (int *)calloc(FUTURE_SPAN, sizeof(int));
-                if (future_positive_count[i][j][k] == NULL)
-                {
-                    fprintf(stderr, "ERROR: Failed to allocate future_positive_count (dimension 4)\n");
-                    exit(1);
-                }
-            }
-        }
-    }
-
-    /* future_negative_count配列の割り当て（方向性分離統計・int型） */
-    future_negative_count = (int ****)malloc(Nkotai * sizeof(int ***));
-    if (future_negative_count == NULL)
-    {
-        fprintf(stderr, "ERROR: Failed to allocate future_negative_count (dimension 1)\n");
-        exit(1);
-    }
-
-    for (i = 0; i < Nkotai; i++)
-    {
-        future_negative_count[i] = (int ***)malloc(Npn * sizeof(int **));
-        if (future_negative_count[i] == NULL)
-        {
-            fprintf(stderr, "ERROR: Failed to allocate future_negative_count (dimension 2)\n");
-            exit(1);
-        }
-
-        for (j = 0; j < Npn; j++)
-        {
-            future_negative_count[i][j] = (int **)malloc(MAX_DEPTH * sizeof(int *));
-            if (future_negative_count[i][j] == NULL)
-            {
-                fprintf(stderr, "ERROR: Failed to allocate future_negative_count (dimension 3)\n");
-                exit(1);
-            }
-
-            for (k = 0; k < MAX_DEPTH; k++)
-            {
-                future_negative_count[i][j][k] = (int *)calloc(FUTURE_SPAN, sizeof(int));
-                if (future_negative_count[i][j][k] == NULL)
-                {
-                    fprintf(stderr, "ERROR: Failed to allocate future_negative_count (dimension 4)\n");
-                    exit(1);
-                }
-            }
-        }
-    }
-
     /* quadrant_count配列の割り当て（象限集中度統計・int型） */
     quadrant_count = (int ****)malloc(Nkotai * sizeof(int ***));
     if (quadrant_count == NULL)
@@ -964,12 +794,6 @@ void initialize_future_arrays()
                 {
                     future_sum[i][j][k][offset] = 0.0;
                     future_sigma_array[i][j][k][offset] = 0.0;
-
-                    /* 方向性分離統計の初期化 */
-                    future_positive_sum[i][j][k][offset] = 0.0;
-                    future_negative_sum[i][j][k][offset] = 0.0;
-                    future_positive_count[i][j][k][offset] = 0;
-                    future_negative_count[i][j][k][offset] = 0;
                 }
 
                 /* 象限集中度統計の初期化 */
@@ -1018,78 +842,6 @@ void free_future_arrays()
             free(future_sigma_array[i]);
         }
         free(future_sigma_array);
-    }
-
-    /* future_positive_sum配列の解放（方向性分離統計） */
-    if (future_positive_sum != NULL)
-    {
-        for (i = 0; i < Nkotai; i++)
-        {
-            for (j = 0; j < Npn; j++)
-            {
-                for (k = 0; k < MAX_DEPTH; k++)
-                {
-                    free(future_positive_sum[i][j][k]);
-                }
-                free(future_positive_sum[i][j]);
-            }
-            free(future_positive_sum[i]);
-        }
-        free(future_positive_sum);
-    }
-
-    /* future_negative_sum配列の解放（方向性分離統計） */
-    if (future_negative_sum != NULL)
-    {
-        for (i = 0; i < Nkotai; i++)
-        {
-            for (j = 0; j < Npn; j++)
-            {
-                for (k = 0; k < MAX_DEPTH; k++)
-                {
-                    free(future_negative_sum[i][j][k]);
-                }
-                free(future_negative_sum[i][j]);
-            }
-            free(future_negative_sum[i]);
-        }
-        free(future_negative_sum);
-    }
-
-    /* future_positive_count配列の解放（方向性分離統計・int型） */
-    if (future_positive_count != NULL)
-    {
-        for (i = 0; i < Nkotai; i++)
-        {
-            for (j = 0; j < Npn; j++)
-            {
-                for (k = 0; k < MAX_DEPTH; k++)
-                {
-                    free(future_positive_count[i][j][k]);
-                }
-                free(future_positive_count[i][j]);
-            }
-            free(future_positive_count[i]);
-        }
-        free(future_positive_count);
-    }
-
-    /* future_negative_count配列の解放（方向性分離統計・int型） */
-    if (future_negative_count != NULL)
-    {
-        for (i = 0; i < Nkotai; i++)
-        {
-            for (j = 0; j < Npn; j++)
-            {
-                for (k = 0; k < MAX_DEPTH; k++)
-                {
-                    free(future_negative_count[i][j][k]);
-                }
-                free(future_negative_count[i][j]);
-            }
-            free(future_negative_count[i]);
-        }
-        free(future_negative_count);
     }
 
     /* quadrant_count配列の解放（象限集中度統計・int型） */
@@ -1776,10 +1528,6 @@ void initialize_individual_statistics()
     // 4次元配列の一括初期化（Phase 1: Refactoring）
     clear_4d_array_double(future_sum, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
     clear_4d_array_double(future_sigma_array, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
-    clear_4d_array_double(future_positive_sum, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
-    clear_4d_array_double(future_negative_sum, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
-    clear_4d_array_int(future_positive_count, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
-    clear_4d_array_int(future_negative_count, Nkotai, Npn, MAX_DEPTH, FUTURE_SPAN);
     clear_4d_array_int(quadrant_count, Nkotai, Npn, MAX_DEPTH, 4);
 }
 
@@ -1945,34 +1693,6 @@ void calculate_rule_statistics()
                             // サンプル数が1の場合、標準偏差は計算不可
                             future_sigma_array[individual][k][j][offset] = 0;
                         }
-
-                        /* 方向性分離統計の計算 */
-                        int pos_count = future_positive_count[individual][k][j][offset];
-                        int neg_count = future_negative_count[individual][k][j][offset];
-
-                        // 正の平均を計算（上昇時の平均）
-                        if (pos_count > 0)
-                        {
-                            future_positive_sum[individual][k][j][offset] /= (double)pos_count;
-                            // future_positive_sum を平均値で上書き（既存のfuture_sumと同様）
-                        }
-                        else
-                        {
-                            future_positive_sum[individual][k][j][offset] = 0.0;
-                        }
-
-                        // 負の平均を計算（下落時の平均）
-                        if (neg_count > 0)
-                        {
-                            future_negative_sum[individual][k][j][offset] /= (double)neg_count;
-                            // future_negative_sum を平均値で上書き
-                        }
-                        else
-                        {
-                            future_negative_sum[individual][k][j][offset] = 0.0;
-                        }
-
-                        /* 注: 勝率と損益比はルール登録時に計算（register_new_rule関数内） */
                     }
                 }
             }
@@ -2015,7 +1735,10 @@ double calculate_concentration_ratio(int *quadrant_counts)
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        double support, int num_attributes,
                        double *future_min_array, double *future_max_array, int matched_count,
-                       int *rule_attributes, int *time_delays)
+                       int *rule_attributes, int *time_delays,
+                       int **matched_indices_out,        /* NEW: 出力パラメータ */
+                       double *concentration_rate_out,   /* NEW: 出力パラメータ */
+                       int *in_quadrant_count_out)       /* NEW: 出力パラメータ */
 {
     int quadrant;
 
@@ -2042,8 +1765,6 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
         return 0;              // 集中率が閾値未満 → 除外
     }
 
-    free(matched_indices); // メモリ解放
-
     /* Stage 2: 最小支持度チェック（サポート率） */
     // 時系列版：分母は Nrd - FUTURE_SPAN（未来予測可能なレコード数）
     // 注：実際の実行順序ではStage 1が象限フィルタ、Stage 2が支持度フィルタ
@@ -2054,11 +1775,18 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     if (support_rate < Minsup)
     {
         filter_rejected_by_minsup++;
+        free(matched_indices); // メモリ解放
         return 0;
     }
 
     // すべてのフィルタをパス
     filter_passed_total++;
+
+    /* 計算済み結果を出力パラメータに設定（Phase 2: Triple Rematch Fix） */
+    *matched_indices_out = matched_indices;        // 呼び出し側に所有権を移す（解放しない）
+    *concentration_rate_out = concentration_rate;
+    *in_quadrant_count_out = in_quadrant_count;
+
     return 1;
 }
 
@@ -2283,9 +2011,17 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
             }
 
             // ルールの品質チェック（サポート率、標準偏差、属性数、Min/Max象限判定、最小マッチ数をチェック）
+            /* Phase 2: 出力パラメータを追加 */
+            int *matched_indices_from_check = NULL;
+            double concentration_rate_from_check = 0.0;
+            int in_quadrant_count_from_check = 0;
+
             if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
                                    future_min_ptr, future_max_ptr, matched_count,
-                                   rule_candidate, time_delay_memo))
+                                   rule_candidate, time_delay_memo,
+                                   &matched_indices_from_check,          /* NEW */
+                                   &concentration_rate_from_check,       /* NEW */
+                                   &in_quadrant_count_from_check))       /* NEW */
             {
                 if (j2 < 9 && j2 >= 1)
                 {
@@ -2294,8 +2030,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
 
                     if (!is_duplicate)
                     {
-                        // サポート率を再計算（全マッチベース）
-                        double correct_support_rate = (double)matched_count / (double)Nrd;
+                        // サポート率を計算（有効レコード数ベース：未来予測可能な範囲）
+                        double correct_support_rate = (double)matched_count / (double)(Nrd - FUTURE_SPAN);
 
                         // 新規ルールとして登録
                         register_new_rule(state, rule_candidate, time_delay_memo,
@@ -2308,18 +2044,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
 
-                        // 集中率を計算（品質指標）
-                        int *matched_indices_for_conc = (int *)malloc(Nrd * sizeof(int));
-                        double concentration_rate = 0.0;
-                        int in_quadrant_count = 0;
-
-                        if (matched_indices_for_conc != NULL)
-                        {
-                            int actual_matched = rematch_rule_pattern(rule_candidate, time_delay_memo, j2, matched_indices_for_conc);
-                            int quadrant_dummy = determine_quadrant_by_rate_with_concentration(matched_indices_for_conc, actual_matched, &concentration_rate, &in_quadrant_count);
-                            (void)quadrant_dummy; // 未使用変数警告回避
-                            free(matched_indices_for_conc);
-                        }
+                        /* Phase 2: rematch削除 - check_rule_qualityから受け取った値を使用 */
+                        double concentration_rate = concentration_rate_from_check;
+                        (void)in_quadrant_count_from_check; // 未使用変数警告回避
 
                         // サポート率を計算（頻度指標：未来予測可能なレコード数ベース）
                         double support_rate = (double)matched_count / (double)(Nrd - FUTURE_SPAN);
@@ -2360,18 +2087,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         // 重複ルールの場合（新規ボーナスなし）
                         filter_passed_duplicates++; // 重複カウント
 
-                        // 集中率を計算
-                        int *matched_indices_for_conc = (int *)malloc(Nrd * sizeof(int));
-                        double concentration_rate = 0.0;
-                        int in_quadrant_count = 0;
-
-                        if (matched_indices_for_conc != NULL)
-                        {
-                            int actual_matched = rematch_rule_pattern(rule_candidate, time_delay_memo, j2, matched_indices_for_conc);
-                            int quadrant_dummy = determine_quadrant_by_rate_with_concentration(matched_indices_for_conc, actual_matched, &concentration_rate, &in_quadrant_count);
-                            (void)quadrant_dummy;
-                            free(matched_indices_for_conc);
-                        }
+                        /* Phase 2: rematch削除 - check_rule_qualityから受け取った値を使用 */
+                        double concentration_rate = concentration_rate_from_check;
+                        (void)in_quadrant_count_from_check; // 未使用変数警告回避
 
                         // サポート率を計算（未来予測可能なレコード数ベース）
                         double support_rate = (double)matched_count / (double)(Nrd - FUTURE_SPAN);
@@ -2391,6 +2109,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                             concentration_rate * 100.0 + // 基本集中率
                             concentration_bonus;         // 高集中率ボーナス
                     }
+
+                    /* Phase 2: matched_indicesの解放（check_rule_qualityから受け取ったもの） */
+                    free(matched_indices_from_check);
 
                     // ルール数上限チェック
                     if (state->rule_count > (Nrulemax - 2))
