@@ -145,9 +145,9 @@ def plot_xt1_xt2(rule_id, rule_row, matched_data, all_data, concentration, domin
 
     # Mean lines
     ax.axvline(mean_t1, color='blue', linestyle='--', linewidth=2,
-               alpha=0.7, label=f'Mean X(t+1) = {mean_t1:.3f}%', zorder=2)
+               alpha=0.7, label=f'Mean X(t+1) = {mean_t1:.3f}', zorder=2)
     ax.axhline(mean_t2, color='green', linestyle='--', linewidth=2,
-               alpha=0.7, label=f'Mean X(t+2) = {mean_t2:.3f}%', zorder=2)
+               alpha=0.7, label=f'Mean X(t+2) = {mean_t2:.3f}', zorder=2)
 
     # Deviation threshold lines (逸脱許容閾値)
     quadrant_names_short = ['Q1(++)', 'Q2(-+)', 'Q3(--)', 'Q4(+-)']

@@ -36,7 +36,7 @@ This is a **time-series data mining system** that uses **Genetic Network Program
    - Interpretation: Pullback after rise
    - Trading strategy: Counter-trend selling (profit-taking)
 
-### Definition of "Quadrant Concentration" (v5.0)
+### Definition of "Quadrant Concentration" (v5.1)
 
 ```
 Concentration Rate = (Dominant Quadrant Count) / (Total Valid Matches)
@@ -213,37 +213,71 @@ int check_rule_quality(
 ```
 
 **Filter sequence:**
-1. MIN_ATTRIBUTES check
-2. Rematch pattern to get matched_indices
-3. Quadrant concentration + deviation check
-4. Support rate check (0.3%)
-5. Minimum support count check (20)
-6. Variance check (999.0%, effectively disabled)
+1. Rematch pattern to get matched_indices
+2. Quadrant concentration + deviation check (Stage 1)
+3. Support rate check (0.5%, Stage 2)
 
-### Fitness Function (main.c:2449-2453, 2489-2491)
+### Fitness Function (v5.1 - Enhanced with Nonlinear Bonuses)
+
+**Location:** main.c:2339-2344 (new rules), main.c:2388-2392 (duplicate rules)
 
 ```c
 // New rule:
-fitness = support_rate × 10.0 +        // Support rate (frequency indicator)
-          concentration_rate × 100.0 + // Concentration rate (quality indicator)
-          20.0;                        // New rule bonus
+fitness = (double)num_attributes +         // Attribute count (complexity bonus: 1-8)
+          support_rate × 10.0 +            // Support rate (10× weight)
+          concentration_rate × 100.0 +     // Base concentration rate (100× weight)
+          concentration_bonus +            // Nonlinear high-concentration bonus (0-10000)
+          20.0;                            // New rule bonus
 
-// Duplicate rule (no bonus):
-fitness = support_rate × 10.0 +       // Support rate
-          concentration_rate × 100.0; // Concentration rate
+// Duplicate rule (no new rule bonus):
+fitness = (double)num_attributes +         // Attribute count
+          support_rate × 10.0 +            // Support rate
+          concentration_rate × 100.0 +     // Base concentration rate
+          concentration_bonus;             // Nonlinear bonus
+```
+
+**Support rate calculation:**
+```c
+support_rate = matched_count / (Nrd - FUTURE_SPAN)
+```
+- Uses **effective records** (records where future prediction is possible)
+- Ensures consistency with filter calculation
+
+**Concentration bonus calculation:**
+```c
+if (concentration_rate >= 0.45) {
+    double excess = (concentration_rate - 0.45) * 20.0;  // Scale to 0.0-1.0
+    concentration_bonus = pow(excess, 2) * 10000.0;      // Quadratic scaling
+}
+// Examples:
+// - 45.0%: bonus = 0
+// - 47.5%: bonus = 2500 (excess = 0.5)
+// - 50.0%: bonus = 10000 (excess = 1.0)
 ```
 
 **Key features:**
-- ✅ Simple 3-component formula
-- ✅ Concentration rate heavily weighted (100×)
-- ✅ Support rate moderately weighted (10×)
-- ❌ No attribute count bonus
-- ❌ No variance-based penalty
-- ❌ No complex bonuses
+- ✅ **Attribute complexity bonus**: 1-8 points (encourages pattern richness)
+- ✅ **Support rate** (10× weight): Frequency indicator
+- ✅ **Base concentration** (100× weight): Linear component
+- ✅ **Nonlinear concentration bonus**: Exponential reward for high concentration (≥45%)
+  - Creates strong evolutionary pressure toward 50%+ concentration
+  - Maximum bonus (10000) vastly exceeds all other components
+- ✅ **New rule bonus** (20 points): Encourages diversity
+
+**Fitness component magnitude comparison:**
+| Component | Typical Range | Weight | Effective Range |
+|-----------|--------------|--------|-----------------|
+| Attribute count | 1-8 | 1× | 1-8 |
+| Support rate (0.5%-2%) | 0.005-0.02 | 10× | 0.05-0.2 |
+| Base concentration (50%-80%) | 0.5-0.8 | 100× | 50-80 |
+| **Concentration bonus** | **0-10000** | **1×** | **0-10000** |
+| New rule bonus | 20 | 1× | 0 or 20 |
+
+→ **Concentration bonus dominates** the fitness landscape for high-quality rules
 
 ---
 
-## Expected Results (v5.0 System)
+## Expected Results (v5.1 System)
 
 ### Current Settings Performance
 
@@ -360,7 +394,7 @@ python3 analysis/fx/plot_gbpjpy_rate50_rules.py
 - Concentration statistics
 - Visual confirmation of quadrant dominance
 
-**Key visualization features (v5.0):**
+**Key visualization features (v5.1):**
 - Origin lines (0%) as quadrant boundaries (black solid)
 - Mean lines (blue/green dashed)
 - Deviation threshold lines (red dashed, ±0.5%)
@@ -382,14 +416,13 @@ python3 analysis/fx/plot_gbpjpy_rate50_rules.py
 
 ---
 
-## Research Value Checklist (v5.0)
+## Research Value Checklist (v5.1)
 
 A discovered rule has research value if:
 
 - [ ] **Quadrant concentrated**: ≥50% of points in dominant quadrant
 - [ ] **Deviation constrained**: All points within ±0.5% of quadrant direction
-- [ ] **Support count ≥ 20**: Statistical reliability
-- [ ] **Support rate ≥ 0.3%**: Sufficient frequency
+- [ ] **Support rate ≥ 0.5%**: Sufficient frequency (based on effective records)
 - [ ] **Pattern is interpretable**: Meaningful attribute combinations
 - [ ] **Verified on out-of-sample data**: Not overfitted
 
@@ -399,11 +432,18 @@ A discovered rule has research value if:
 
 ## System Evolution History
 
-### v5.0 (Current - 2025-11-12)
+### v5.1 (Current - 2025-11-13)
+- **Enhanced fitness function**: Added nonlinear concentration bonus (0-10000 points)
+- **Attribute complexity bonus**: Rewards patterns with more attributes (1-8 points)
+- **Support rate calculation**: Fixed to use effective records (Nrd - FUTURE_SPAN)
+- **Evolutionary pressure**: Strong bias toward 50%+ concentration via exponential rewards
+- **Target market**: FX daily data
+
+### v5.0 (2025-11-12)
 - **0-based quadrant determination**: Pure sign-based classification
 - **Concentration rate filter**: 50% majority rule
 - **Deviation constraint**: 0.5% strict control (updated from 1.0%)
-- **Simplified fitness**: Support + Concentration only
+- **Simplified fitness**: Support + Concentration (linear only)
 - **Target market**: FX daily data
 
 ### Previous Versions (Deprecated)
@@ -416,16 +456,18 @@ A discovered rule has research value if:
 
 ## Key Differences from Previous Approach
 
-| Aspect | OLD (Mean-based) | CURRENT (v5.0 Concentration-based) |
-|--------|------------------|-----------------------------------|
-| **Primary filter** | mean ≥ 0.05% | concentration_rate ≥ 50% |
-| **Quadrant determination** | MinMax thresholds | 0-based (sign only) |
-| **Deviation control** | None | ±0.5% strict constraint |
-| **Mean usage** | Filter threshold | Output only (reference) |
-| **Directionality** | Average-based | Majority-based |
-| **Pattern types** | Mainly Q1 (positive) | All 4 quadrants equally |
-| **Fitness function** | Complex bonuses | Simple: support + concentration |
-| **Target data** | Crypto hourly | FX daily |
+| Aspect | OLD (Mean-based) | v5.0 (Linear) | v5.1 (Current - Nonlinear) |
+|--------|------------------|---------------|---------------------------|
+| **Primary filter** | mean ≥ 0.05% | concentration ≥ 50% | concentration ≥ 50% |
+| **Quadrant determination** | MinMax thresholds | 0-based (sign only) | 0-based (sign only) |
+| **Deviation control** | None | ±0.5% strict | ±0.5% strict |
+| **Mean usage** | Filter threshold | Output only | Output only |
+| **Directionality** | Average-based | Majority-based | Majority-based |
+| **Pattern types** | Mainly Q1 (positive) | All 4 quadrants | All 4 quadrants |
+| **Fitness function** | Complex bonuses | Linear: support + concentration | **Nonlinear: support + concentration + exponential bonus** |
+| **Support calculation** | N/A | Nrd (all records) | **Nrd - FUTURE_SPAN (effective)** |
+| **Concentration reward** | N/A | Linear (100×) | **Linear (100×) + Exponential (0-10000)** |
+| **Target data** | Crypto hourly | FX daily | FX daily |
 
 ---
 
@@ -473,10 +515,12 @@ A discovered rule has research value if:
 3. Can we predict which quadrant will dominate?
 4. What is the relationship between concentration and profitability?
 5. How do discovered patterns perform in different market regimes?
+6. **[v5.1]** Does the nonlinear concentration bonus (45%-50% exponential reward) create better patterns than linear weighting?
+7. **[v5.1]** What is the optimal threshold for triggering the exponential bonus (currently 45%)?
 
 ---
 
-**Document version**: 5.0 (Concentration-based filtering with deviation constraint)
-**Last updated**: 2025-11-12
+**Document version**: 5.1 (Nonlinear fitness with concentration bonus)
+**Last updated**: 2025-11-13
 **Status**: Production (FX daily data)
-**Main implementation**: `main.c` (3936 lines)
+**Main implementation**: `main.c` (~3900 lines)

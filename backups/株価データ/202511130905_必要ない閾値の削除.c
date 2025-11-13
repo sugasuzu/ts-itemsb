@@ -31,9 +31,9 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 象限集中方式（v5.0 - シンプル化：0ベース象限判定） */
-#define Minsup 0.003           // 最小支持度
+#define Minsup 0.005                // 最小支持度：サポート率（有効レコード数に対する割合）
 #define MIN_CONCENTRATION 0.50 // 最小集中率：支配象限への集中度（割合）
-#define MAX_DEVIATION 0.5      // 最大逸脱率：象限境界からの許容誤差
+#define MAX_DEVIATION 0.5      // 最大逸脱率：象限境界からの許容誤差（%）
 
 /* ルール品質フラグ設定の係数 */
 #define HIGH_SUPPORT_MULTIPLIER 2.0 // 高サポートフラグの判定係数（Minsup * 2.0）
