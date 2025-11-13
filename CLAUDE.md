@@ -10,7 +10,7 @@ This is a **time-series data mining system** that uses **Genetic Network Program
 
 ---
 
-## Research Objective (Updated: 2025-11-12)
+## Research Objective (Updated: 2025-11-13)
 
 ### Core Goal: Discovery of Quadrant-Concentrated Patterns
 
@@ -126,18 +126,22 @@ make
 
 ---
 
-## Current Threshold Settings (main.c Implementation v5.0)
+## Current Threshold Settings (main.c Implementation v5.2)
 
-### Active Quality Thresholds
+### Active Quality Thresholds (UPDATED: 2025-11-13)
 
 ```c
-// main.c lines 33-38 (current implementation)
-#define Minsup 0.003                    // 0.3% support rate (全マッチベース)
-#define MIN_SUPPORT_COUNT 20            // Minimum 20 matches
-#define QUADRANT_THRESHOLD_RATE 0.50    // 50% quadrant concentration rate
-#define DEVIATION_THRESHOLD 0.5         // 0.5% deviation tolerance (UPDATED: 2025-11-12)
-#define Maxsigx 999.0                   // Maximum sigma (effectively disabled)
+// main.c lines 34-36 (current implementation - 検証用に緩和)
+#define Minsup 0.001                    // 0.1% support rate (検証用に緩和)
+#define MIN_CONCENTRATION 0.40          // 40% quadrant concentration rate (検証用に緩和)
+#define MAX_DEVIATION 1.0               // 1.0% deviation tolerance (検証用に緩和)
+#define HIGH_SUPPORT_MULTIPLIER 2.0     // High-support flag threshold (Minsup × 2.0)
 ```
+
+**注意:** 本番環境では以下の値に戻すことを推奨：
+- `Minsup 0.005` (0.5%)
+- `MIN_CONCENTRATION 0.50` (50%)
+- `MAX_DEVIATION 0.5` (0.5%)
 
 ### Filter Sequence
 
@@ -156,9 +160,10 @@ Stage 3: Deviation Constraint Check (UPDATED: 0.5%)
     → Check if deviation from dominant quadrant exceeds 0.5%
     → REJECT if any point violates deviation constraint
 
-Stage 4: Support Rate Check
-  → support_rate = matched_count / Nrd ≥ 0.3%
-  → matched_count ≥ 20
+Stage 4: Support Rate Check (論文準拠 - 式(3))
+  → support_rate = matched_count / (Nrd - S_max(X∪Y)) ≥ 0.1%
+  → S_max(X∪Y) = max_delay + FUTURE_SPAN (ルール固有)
+  → 実装: calculate_accurate_support_rate() (main.c:1724)
 
 Stage 5: Variance Check (effectively disabled)
   → sigma ≤ 999.0% (all rules pass)
@@ -432,7 +437,15 @@ A discovered rule has research value if:
 
 ## System Evolution History
 
-### v5.1 (Current - 2025-11-13)
+### v5.2 (Current - 2025-11-13)
+- **Code optimization**: Removed legacy `negative_count` computation (~48KB memory saved)
+- **Simplified support calculation**: Deleted unused `calculate_support_value()` function
+- **Paper-compliant filtering**: Uses `calculate_accurate_support_rate()` (式(3)準拠)
+- **Backward compatibility**: Output file format unchanged (fixed value: Nrd - FUTURE_SPAN)
+- **Verification thresholds**: Relaxed for testing (Minsup=0.1%, MIN_CONCENTRATION=40%, MAX_DEVIATION=1.0%)
+- **Target market**: FX daily data
+
+### v5.1 (2025-11-13)
 - **Enhanced fitness function**: Added nonlinear concentration bonus (0-10000 points)
 - **Attribute complexity bonus**: Rewards patterns with more attributes (1-8 points)
 - **Support rate calculation**: Fixed to use effective records (Nrd - FUTURE_SPAN)
@@ -456,18 +469,20 @@ A discovered rule has research value if:
 
 ## Key Differences from Previous Approach
 
-| Aspect | OLD (Mean-based) | v5.0 (Linear) | v5.1 (Current - Nonlinear) |
-|--------|------------------|---------------|---------------------------|
-| **Primary filter** | mean ≥ 0.05% | concentration ≥ 50% | concentration ≥ 50% |
-| **Quadrant determination** | MinMax thresholds | 0-based (sign only) | 0-based (sign only) |
-| **Deviation control** | None | ±0.5% strict | ±0.5% strict |
-| **Mean usage** | Filter threshold | Output only | Output only |
-| **Directionality** | Average-based | Majority-based | Majority-based |
-| **Pattern types** | Mainly Q1 (positive) | All 4 quadrants | All 4 quadrants |
-| **Fitness function** | Complex bonuses | Linear: support + concentration | **Nonlinear: support + concentration + exponential bonus** |
-| **Support calculation** | N/A | Nrd (all records) | **Nrd - FUTURE_SPAN (effective)** |
-| **Concentration reward** | N/A | Linear (100×) | **Linear (100×) + Exponential (0-10000)** |
-| **Target data** | Crypto hourly | FX daily | FX daily |
+| Aspect | OLD (Mean-based) | v5.0 (Linear) | v5.1 (Nonlinear) | v5.2 (Current - Optimized) |
+|--------|------------------|---------------|------------------|---------------------------|
+| **Primary filter** | mean ≥ 0.05% | concentration ≥ 50% | concentration ≥ 50% | concentration ≥ 40% (検証用) |
+| **Quadrant determination** | MinMax thresholds | 0-based (sign only) | 0-based (sign only) | 0-based (sign only) |
+| **Deviation control** | None | ±0.5% strict | ±0.5% strict | ±1.0% (検証用に緩和) |
+| **Mean usage** | Filter threshold | Output only | Output only | Output only |
+| **Directionality** | Average-based | Majority-based | Majority-based | Majority-based |
+| **Pattern types** | Mainly Q1 (positive) | All 4 quadrants | All 4 quadrants | All 4 quadrants |
+| **Fitness function** | Complex bonuses | Linear: support + concentration | Nonlinear: support + concentration + exponential bonus | Same as v5.1 |
+| **Support calculation** | N/A | Nrd (all records) | Nrd - FUTURE_SPAN (effective) | **Paper-compliant (式(3))** |
+| **Concentration reward** | N/A | Linear (100×) | Linear (100×) + Exponential (0-10000) | Same as v5.1 |
+| **negative_count** | N/A | Computed 3D array | Computed 3D array | **Fixed value (optimized)** |
+| **Memory usage** | N/A | ~48KB for negative_count | ~48KB for negative_count | **Saved ~48KB** |
+| **Target data** | Crypto hourly | FX daily | FX daily | FX daily |
 
 ---
 
@@ -520,7 +535,62 @@ A discovered rule has research value if:
 
 ---
 
-**Document version**: 5.1 (Nonlinear fitness with concentration bonus)
+## Recent Optimizations (2025-11-13)
+
+### Code Cleanup - Removed Legacy negative_count System
+
+**Motivation:** Code review revealed that the `negative_count` 3D array and related functions were completely unused in the actual filtering logic, wasting ~48KB of memory.
+
+**What was removed:**
+
+1. **Functions deleted:**
+   - `calculate_support_value()` (main.c:1724-1731) - Computed `matched_count / negative_count_val` but result was never used
+   - `calculate_negative_counts()` (main.c:1657-1671) - Copied `match_count[i][k][0]` to all depths of `negative_count` array
+
+2. **Data structures removed:**
+   - `int ***negative_count` global 3D array (120 × 10 × 10 = 12,000 integers = ~48KB)
+   - All allocations, initializations, and deallocations related to this array
+
+3. **Function signatures simplified:**
+   - `check_rule_quality()`: Removed unused `support` parameter
+   - `register_new_rule()`: Removed `negative_count_val` parameter (now computed internally as fixed value)
+
+4. **Call sites updated:**
+   - Removed `calculate_negative_counts()` call from main evolution loop (line 3351)
+   - Removed unused `support` calculation in `extract_rules_single_individual()`
+   - Updated all function calls to match new signatures
+
+**What was preserved (Option 2 - Backward Compatibility):**
+
+- **Output file format unchanged**: `rule_pool[idx].negative_count` still exists as a struct member
+- **Fixed value used**: Set to `Nrd - FUTURE_SPAN` in `register_new_rule()` (main.c:1872-1876)
+- **Rationale**: Maintains compatibility with existing analysis scripts that read CSV output
+
+**Benefits:**
+- **Memory**: Saved ~48KB (removed 12,000-element 3D array)
+- **CPU**: Eliminated useless computation loop in hot path
+- **Code clarity**: Removed 50+ lines of dead code
+- **Maintainability**: Clearer what's actually used vs. legacy output fields
+
+**Verification:**
+```bash
+$ make clean && make
+✓ Compilation: No warnings or errors
+
+$ ./main GBPJPY
+✓ Execution: Normal operation
+
+$ head -2 1-deta-enginnering/forex_data_daily/output/GBPJPY/pool/zrp01a.txt
+✓ Output: Negative column = 4130 (= Nrd - FUTURE_SPAN = 4132 - 2)
+```
+
+**Related documentation:**
+- Problem analysis: `/docs/20251113_critical_bug_matched_count_range.md`
+- Implementation log: `/docs/20251113_fix_implementation_summary.md`
+
+---
+
+**Document version**: 5.2 (Optimized with legacy code removal)
 **Last updated**: 2025-11-13
-**Status**: Production (FX daily data)
-**Main implementation**: `main.c` (~3900 lines)
+**Status**: Production (FX daily data, 検証用閾値で実行中)
+**Main implementation**: `main.c` (~3850 lines, -50 lines from v5.1)

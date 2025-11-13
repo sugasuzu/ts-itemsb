@@ -31,9 +31,9 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 象限集中方式（v5.0 - シンプル化：0ベース象限判定） */
-#define Minsup 0.005           // 最小支持度
-#define MIN_CONCENTRATION 0.50 // 最小集中率：支配象限への集中度（割合）
-#define MAX_DEVIATION 0.5      // 最大逸脱率：象限境界からの許容誤差
+#define Minsup 0.001           // 最小支持度（検証用に緩和：0.1%）
+#define MIN_CONCENTRATION 0.40 // 最小集中率（検証用に緩和：40%）
+#define MAX_DEVIATION 1.0      // 最大逸脱率（検証用に緩和：1.0%）
 
 /* ルール品質フラグ設定の係数 */
 #define HIGH_SUPPORT_MULTIPLIER 2.0 // 高サポートフラグの判定係数（Minsup * 2.0）
@@ -45,7 +45,7 @@
 
 /* GNPパラメータ */
 #define Generation 201
-#define Nkotai 240
+#define Nkotai 120
 #define Npn 10
 #define Njg 100
 #define Nmx 7
@@ -168,7 +168,6 @@ int delay_tracking[MAX_TIME_DELAY + 1];
 int ***node_structure = NULL;
 
 int ***match_count = NULL;
-int ***negative_count = NULL;
 int ***evaluation_count = NULL;
 int ***attribute_chain = NULL;
 int ***time_delay_chain = NULL;
@@ -529,9 +528,30 @@ static int rematch_rule_pattern(int *rule_attributes, int *time_delays, int num_
     int matched_count = 0;
     int time_index, attr_idx, is_match;
     int safe_start, safe_end;
+    int i;
 
-    /* 安全な範囲を取得（未来予測値が取得できる範囲に限定） */
-    get_safe_data_range(&safe_start, &safe_end);
+    /* ルール固有の最大時間遅延を計算（論文準拠） */
+    int max_delay = 0;
+    for (i = 0; i < num_attributes; i++)
+    {
+        if (time_delays[i] > max_delay)
+        {
+            max_delay = time_delays[i];
+        }
+    }
+
+    /* ルール固有の安全な範囲を設定 */
+    /* 論文の式(3)準拠: S_max(X∪Y) = max_delay + FUTURE_SPAN に基づく有効範囲 */
+    if (TIMESERIES_MODE)
+    {
+        safe_start = max_delay;              // ルール固有の開始点（過去参照可能）
+        safe_end = Nrd - FUTURE_SPAN;        // 未来予測可能な終了点
+    }
+    else
+    {
+        safe_start = 0;
+        safe_end = Nrd;
+    }
 
     /* 安全範囲のデータポイントのみをスキャン */
     for (time_index = safe_start; time_index < safe_end; time_index++)
@@ -908,7 +928,6 @@ void allocate_dynamic_memory()
     /* 評価統計配列の割り当て */
     // 各種カウント配列：[個体][処理ノード][深さ]
     match_count = (int ***)malloc(Nkotai * sizeof(int **));
-    negative_count = (int ***)malloc(Nkotai * sizeof(int **));
     evaluation_count = (int ***)malloc(Nkotai * sizeof(int **));
     attribute_chain = (int ***)malloc(Nkotai * sizeof(int **));
     time_delay_chain = (int ***)malloc(Nkotai * sizeof(int **));
@@ -917,7 +936,6 @@ void allocate_dynamic_memory()
     for (i = 0; i < Nkotai; i++)
     {
         match_count[i] = (int **)malloc(Npn * sizeof(int *));
-        negative_count[i] = (int **)malloc(Npn * sizeof(int *));
         evaluation_count[i] = (int **)malloc(Npn * sizeof(int *));
         attribute_chain[i] = (int **)malloc(Npn * sizeof(int *));
         time_delay_chain[i] = (int **)malloc(Npn * sizeof(int *));
@@ -925,7 +943,6 @@ void allocate_dynamic_memory()
         for (j = 0; j < Npn; j++)
         {
             match_count[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
-            negative_count[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             evaluation_count[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             attribute_chain[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
             time_delay_chain[i][j] = (int *)malloc(MAX_DEPTH * sizeof(int));
@@ -1038,19 +1055,16 @@ void free_dynamic_memory()
             for (j = 0; j < Npn; j++)
             {
                 free(match_count[i][j]);
-                free(negative_count[i][j]);
                 free(evaluation_count[i][j]);
                 free(attribute_chain[i][j]);
                 free(time_delay_chain[i][j]);
             }
             free(match_count[i]);
-            free(negative_count[i]);
             free(evaluation_count[i]);
             free(attribute_chain[i]);
             free(time_delay_chain[i]);
         }
         free(match_count);
-        free(negative_count);
         free(evaluation_count);
         free(attribute_chain);
         free(time_delay_chain);
@@ -1522,7 +1536,6 @@ void initialize_individual_statistics()
     clear_3d_array_int(match_count, Nkotai, Npn, MAX_DEPTH);
     clear_3d_array_int(attribute_chain, Nkotai, Npn, MAX_DEPTH);
     clear_3d_array_int(time_delay_chain, Nkotai, Npn, MAX_DEPTH);
-    clear_3d_array_int(negative_count, Nkotai, Npn, MAX_DEPTH);
     clear_3d_array_int(evaluation_count, Nkotai, Npn, MAX_DEPTH);
 
     // 4次元配列の一括初期化（Phase 1: Refactoring）
@@ -1633,22 +1646,6 @@ void evaluate_all_individuals()
     }
 }
 
-void calculate_negative_counts()
-{
-    int individual, k, i;
-
-    for (individual = 0; individual < Nkotai; individual++)
-    {
-        for (k = 0; k < Npn; k++)
-        {
-            for (i = 0; i < Nmx; i++)
-            {
-                negative_count[individual][k][i] = match_count[individual][k][0];
-            }
-        }
-    }
-}
-
 void calculate_rule_statistics()
 {
     int individual, k, j;
@@ -1700,13 +1697,43 @@ void calculate_rule_statistics()
     }
 }
 
-double calculate_support_value(int matched_count, int negative_count_val)
+/**
+ * 論文準拠のサポート率計算（式(3)準拠）
+ *
+ * support'(X) = t'(X) / (N - S_max(X∪Y))
+ *
+ * S_max(X∪Y) = max(time_delays) + FUTURE_SPAN
+ *
+ * @param matched_count: マッチ数 t'(X)
+ * @param time_delays: 時間遅延配列
+ * @param num_attributes: 属性数
+ * @return サポート率 support'(X)
+ */
+static double calculate_accurate_support_rate(int matched_count, int *time_delays, int num_attributes)
 {
-    if (negative_count_val == 0)
+    int max_delay;
+    int S_max_XY;
+    int effective_records;
+    int i;
+
+    /* ルール固有の最大時間遅延を取得 */
+    max_delay = 0;
+    for (i = 0; i < num_attributes; i++)
     {
-        return 0.0; // ゼロ除算防止
+        if (time_delays[i] > max_delay)
+        {
+            max_delay = time_delays[i];
+        }
     }
-    return (double)matched_count / (double)negative_count_val;
+
+    /* 論文の式(3): S_max(X∪Y) = max_delay + FUTURE_SPAN */
+    S_max_XY = max_delay + FUTURE_SPAN;
+
+    /* 有効レコード数 = N - S_max(X∪Y) */
+    effective_records = Nrd - S_max_XY;
+
+    /* サポート率を返す */
+    return (double)matched_count / (double)effective_records;
 }
 
 double calculate_concentration_ratio(int *quadrant_counts)
@@ -1733,7 +1760,7 @@ double calculate_concentration_ratio(int *quadrant_counts)
 }
 
 int check_rule_quality(double *future_sigma_array, double *future_mean_array,
-                       double support, int num_attributes,
+                       int num_attributes,
                        double *future_min_array, double *future_max_array, int matched_count,
                        int *rule_attributes, int *time_delays,
                        int **matched_indices_out,        /* NEW: 出力パラメータ */
@@ -1766,11 +1793,8 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     }
 
     /* Stage 2: 最小支持度チェック（サポート率） */
-    // 時系列版：分母は Nrd - FUTURE_SPAN（未来予測可能なレコード数）
-    // 注：実際の実行順序ではStage 1が象限フィルタ、Stage 2が支持度フィルタ
-    int effective_records = Nrd - FUTURE_SPAN;
-
-    double support_rate = (double)actual_matched_count / (double)effective_records;
+    /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
+    double support_rate = calculate_accurate_support_rate(actual_matched_count, time_delays, num_attributes);
 
     if (support_rate < Minsup)
     {
@@ -1822,7 +1846,7 @@ void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, in
 void register_new_rule(struct trial_state *state, int *rule_candidate, int *time_delays,
                        double *future_mean, double *future_sigma,
                        double *future_min, double *future_max,
-                       int support_count, int negative_count_val, double support_value,
+                       int support_count, double support_value,
                        int num_attributes,
                        int individual, int k, int depth)
 {
@@ -1846,7 +1870,8 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
     }
 
     rule_pool[idx].support_count = support_count;
-    rule_pool[idx].negative_count = negative_count_val;
+    /* negative_count: 後方互換性のため出力に残す（固定値: 有効レコード数） */
+    rule_pool[idx].negative_count = Nrd - FUTURE_SPAN;
     rule_pool[idx].support_rate = support_value; // サポート率を保存
     rule_pool[idx].num_attributes = num_attributes;
 
@@ -1875,9 +1900,30 @@ void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, in
     int safe_start, safe_end;
     int time_index, attr_idx, is_match;
     int matched_count = 0;
+    int i;
 
-    // 安全な範囲を取得
-    get_safe_data_range(&safe_start, &safe_end);
+    /* ルール固有の最大時間遅延を計算（論文準拠） */
+    int max_delay = 0;
+    for (i = 0; i < num_attrs; i++)
+    {
+        if (time_delays[i] > max_delay)
+        {
+            max_delay = time_delays[i];
+        }
+    }
+
+    /* ルール固有の安全な範囲を設定 */
+    /* 論文の式(3)準拠: S_max(X∪Y) = max_delay + FUTURE_SPAN に基づく有効範囲 */
+    if (TIMESERIES_MODE)
+    {
+        safe_start = max_delay;              // ルール固有の開始点（過去参照可能）
+        safe_end = Nrd - FUTURE_SPAN;        // 未来予測可能な終了点
+    }
+    else
+    {
+        safe_start = 0;
+        safe_end = Nrd;
+    }
 
     // 全時点を走査
     for (time_index = safe_start; time_index < safe_end; time_index++)
@@ -1973,8 +2019,6 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
         {
             // 現在の深さの統計を取得
             int matched_count = match_count[individual][k][loop_j];
-            double support = calculate_support_value(matched_count,
-                                                     negative_count[individual][k][loop_j]);
 
             // 未来予測統計へのポインタを取得
             double *future_mean_ptr = future_sum[individual][k][loop_j];
@@ -2016,7 +2060,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
             double concentration_rate_from_check = 0.0;
             int in_quadrant_count_from_check = 0;
 
-            if (check_rule_quality(future_sigma_ptr, future_mean_ptr, support, j2,
+            if (check_rule_quality(future_sigma_ptr, future_mean_ptr, j2,
                                    future_min_ptr, future_max_ptr, matched_count,
                                    rule_candidate, time_delay_memo,
                                    &matched_indices_from_check,          /* NEW */
@@ -2030,14 +2074,14 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
 
                     if (!is_duplicate)
                     {
-                        // サポート率を計算（有効レコード数ベース：未来予測可能な範囲）
-                        double correct_support_rate = (double)matched_count / (double)(Nrd - FUTURE_SPAN);
+                        /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
+                        double correct_support_rate = calculate_accurate_support_rate(matched_count, time_delay_memo, j2);
 
                         // 新規ルールとして登録
                         register_new_rule(state, rule_candidate, time_delay_memo,
                                           future_mean_ptr, future_sigma_ptr,
                                           future_min_ptr, future_max_ptr,
-                                          matched_count, negative_count[individual][k][loop_j],
+                                          matched_count,
                                           correct_support_rate, j2,
                                           individual, k, loop_j);
 
@@ -2048,8 +2092,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         double concentration_rate = concentration_rate_from_check;
                         (void)in_quadrant_count_from_check; // 未使用変数警告回避
 
-                        // サポート率を計算（頻度指標：未来予測可能なレコード数ベース）
-                        double support_rate = (double)matched_count / (double)(Nrd - FUTURE_SPAN);
+                        /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
+                        double support_rate = calculate_accurate_support_rate(matched_count, time_delay_memo, j2);
 
                         // 集中率ボーナスを計算（Action 2: 非線形化）
                         // 45%以上の集中率に指数関数的な巨大ボーナスを与える
@@ -2091,8 +2135,8 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         double concentration_rate = concentration_rate_from_check;
                         (void)in_quadrant_count_from_check; // 未使用変数警告回避
 
-                        // サポート率を計算（未来予測可能なレコード数ベース）
-                        double support_rate = (double)matched_count / (double)(Nrd - FUTURE_SPAN);
+                        /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
+                        double support_rate = calculate_accurate_support_rate(matched_count, time_delay_memo, j2);
 
                         // 集中率ボーナスを計算（Action 2: 非線形化）
                         double concentration_bonus = 0.0;
@@ -3302,9 +3346,6 @@ int process_single_stock(const char *code)
 
             // 全個体を全データで評価
             evaluate_all_individuals();
-
-            // ネガティブカウントを計算
-            calculate_negative_counts();
 
             // ルール統計（平均、標準偏差）を計算
             calculate_rule_statistics();
