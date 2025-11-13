@@ -26,7 +26,7 @@ DATA_FILE = BASE_DIR / "GBPJPY.txt"
 
 # Thresholds (閾値設定)
 QUADRANT_THRESHOLD = 0.0  # 0% (v5.0 - 0ベース象限判定)
-DEVIATION_THRESHOLD = 1.0  # 1.0% (逸脱許容閾値)
+DEVIATION_THRESHOLD = 0.5  # 0.5% (逸脱許容閾値)
 
 # Create output directory
 SCATTER_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,19 +153,19 @@ def plot_xt1_xt2(rule_id, rule_row, matched_data, all_data, concentration, domin
     quadrant_names_short = ['Q1(++)', 'Q2(-+)', 'Q3(--)', 'Q4(+-)']
     if dominant_quadrant == 1:  # Q1 (++)
         ax.axvline(-DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2,
-                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD}%)', zorder=2)
+                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD})', zorder=2)
         ax.axhline(-DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2, alpha=0.6, zorder=2)
     elif dominant_quadrant == 2:  # Q2 (-+)
         ax.axvline(DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2,
-                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD}%)', zorder=2)
+                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD})', zorder=2)
         ax.axhline(-DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2, alpha=0.6, zorder=2)
     elif dominant_quadrant == 3:  # Q3 (--)
         ax.axvline(DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2,
-                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD}%)', zorder=2)
+                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD})', zorder=2)
         ax.axhline(DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2, alpha=0.6, zorder=2)
     elif dominant_quadrant == 4:  # Q4 (+-)
         ax.axvline(-DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2,
-                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD}%)', zorder=2)
+                   alpha=0.6, label=f'Deviation limit (±{DEVIATION_THRESHOLD})', zorder=2)
         ax.axhline(DEVIATION_THRESHOLD, color='red', linestyle='--', linewidth=2, alpha=0.6, zorder=2)
 
     # Statistics box
@@ -175,11 +175,11 @@ def plot_xt1_xt2(rule_id, rule_row, matched_data, all_data, concentration, domin
     stats_text += f'Dominant: {quadrant_names[dominant_quadrant-1]}\n'
     stats_text += f'Concentration: {concentration*100:.1f}%\n'
     stats_text += f'\n'
-    stats_text += f'Support: {support_count} matches ({support_rate*100:.2f}%)\n'
+    stats_text += f'Support: {support_count} matches ({support_rate:.2f})\n'
     stats_text += f'Attributes: {num_attr}\n'
     stats_text += f'\n'
-    stats_text += f'X(t+1): μ={mean_t1:+.3f}%, σ={sigma_t1:.3f}%\n'
-    stats_text += f'X(t+2): μ={mean_t2:+.3f}%, σ={sigma_t2:.3f}%\n'
+    stats_text += f'X(t+1): μ={mean_t1:+.3f}, σ={sigma_t1:.3f}\n'
+    stats_text += f'X(t+2): μ={mean_t2:+.3f}, σ={sigma_t2:.3f}\n'
     stats_text += f'\n'
     stats_text += f'Pattern:\n'
     for i, attr in enumerate(attributes[:5], 1):
@@ -190,7 +190,7 @@ def plot_xt1_xt2(rule_id, rule_row, matched_data, all_data, concentration, domin
     ax.text(0.02, 0.98, stats_text,
             transform=ax.transAxes,
             verticalalignment='top',
-            fontsize=9,
+            fontsize=11,
             family='monospace',
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9),
             zorder=4)
@@ -199,14 +199,12 @@ def plot_xt1_xt2(rule_id, rule_row, matched_data, all_data, concentration, domin
     ax.set_ylabel('X(t+2) [%]', fontsize=14, fontweight='bold')
     ax.set_title(f'GBPJPY Rule #{rule_id}: X(t+1) vs X(t+2)',
                  fontsize=15, fontweight='bold', pad=20)
-    ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
 
-    max_x = max(abs(mean_t1) + sigma_t1 * 4, 2.0)
-    max_y = max(abs(mean_t2) + sigma_t2 * 4, 2.0)
-    max_range = max(max_x, max_y, 3.0)
-    ax.set_xlim(-max_range, max_range)
-    ax.set_ylim(-max_range, max_range)
+    # 軸範囲を-3～3に固定
+    ax.set_xlim(-3.0, 3.0)
+    ax.set_ylim(-3.0, 3.0)
 
     plt.tight_layout()
 
@@ -222,8 +220,8 @@ def main():
     print("GBPJPY Rules Visualization (v5.0 with DEVIATION_THRESHOLD)")
     print("=" * 70)
     print(f"Settings:")
-    print(f"  QUADRANT_THRESHOLD_RATE: 50%")
-    print(f"  DEVIATION_THRESHOLD: ±{DEVIATION_THRESHOLD}%")
+    print(f"  QUADRANT_THRESHOLD_RATE: 50")
+    print(f"  DEVIATION_THRESHOLD: ±{DEVIATION_THRESHOLD}")
     print(f"  MIN_SUPPORT_COUNT: 20")
     print()
 
@@ -251,7 +249,7 @@ def main():
         # Plot: X(t+1) vs X(t+2) only
         file_2d = plot_xt1_xt2(rule_id, row, matched_data, all_data, concentration, dominant_quadrant, quadrant_counts)
 
-        print(f"  [{rule_id}/{total_rules}] ✓ Rule #{rule_id}: Concentration={concentration*100:.1f}%, Dominant=Q{dominant_quadrant}")
+        print(f"  [{rule_id}/{total_rules}] ✓ Rule #{rule_id}: Concentration={concentration*100:.1f}, Dominant=Q{dominant_quadrant}")
 
     print()
     print("=" * 70)
