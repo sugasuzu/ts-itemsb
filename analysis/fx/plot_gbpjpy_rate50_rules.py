@@ -175,17 +175,14 @@ def plot_xt1_xt2(rule_id, rule_row, matched_data, all_data, concentration, domin
     stats_text += f'Dominant: {quadrant_names[dominant_quadrant-1]}\n'
     stats_text += f'Concentration: {concentration*100:.1f}%\n'
     stats_text += f'\n'
-    stats_text += f'Support: {support_count} matches ({support_rate:.2f})\n'
-    stats_text += f'Attributes: {num_attr}\n'
+    stats_text += f'Support: {support_count})\n'
     stats_text += f'\n'
     stats_text += f'X(t+1): μ={mean_t1:+.3f}, σ={sigma_t1:.3f}\n'
     stats_text += f'X(t+2): μ={mean_t2:+.3f}, σ={sigma_t2:.3f}\n'
     stats_text += f'\n'
-    stats_text += f'Pattern:\n'
-    for i, attr in enumerate(attributes[:5], 1):
+    stats_text += f'Attributes:\n'
+    for i, attr in enumerate(attributes[:], 1):
         stats_text += f'  {i}. {attr}\n'
-    if len(attributes) > 5:
-        stats_text += f'  ... +{len(attributes)-5} more\n'
 
     ax.text(0.02, 0.98, stats_text,
             transform=ax.transAxes,
