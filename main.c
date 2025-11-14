@@ -31,9 +31,9 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 象限集中方式（v5.0 - シンプル化：0ベース象限判定） */
-#define Minsup 0.001           // 最小支持度（検証用に緩和：0.1%）
+#define Minsup 0.004           // 最小支持度
 #define MIN_CONCENTRATION 0.40 // 最小集中率（検証用に緩和：40%）
-#define MAX_DEVIATION 1.0      // 最大逸脱率（検証用に緩和：1.0%）
+#define MAX_DEVIATION 0.75      // 最大逸脱率（検証用に緩和：0.74%）
 
 /* ルール品質フラグ設定の係数 */
 #define HIGH_SUPPORT_MULTIPLIER 2.0 // 高サポートフラグの判定係数（Minsup * 2.0）
@@ -41,7 +41,7 @@
 /* 実験パラメータ */
 #define Nrulemax 2002
 #define Nstart 1000
-#define Ntry 10
+#define Ntry 1
 
 /* GNPパラメータ */
 #define Generation 201
@@ -101,6 +101,11 @@ struct temporal_rule
     int high_support_flag;
     int low_variance_flag;
     int num_attributes;
+
+    /* 品質指標（v5.2追加） */
+    int quadrant;           // 支配象限: 1=Q1(++), 2=Q2(-+), 3=Q3(--), 4=Q4(+-), 0=undefined
+    double concentration;   // 象限集中度: 0.0-1.0
+    double deviation;       // 逸脱メトリック: (max(|min_t1|, |max_t1|) + max(|min_t2|, |max_t2|)) / 2
 
     int *matched_indices;
     int matched_count_vis;
@@ -398,6 +403,19 @@ __attribute__((unused)) static double calculate_maximum_return(int *matched_indi
     }
 
     return (max_val == -INFINITY) ? 0.0 : max_val;
+}
+
+/* 象限番号を文字列表現に変換するヘルパー関数 */
+static const char* quadrant_to_string(int quadrant)
+{
+    switch (quadrant)
+    {
+        case 1: return "Q1(++)";
+        case 2: return "Q2(-+)";
+        case 3: return "Q3(--)";
+        case 4: return "Q4(+-)";
+        default: return "Q0(NA)";
+    }
 }
 
 /* 割合ベース象限判定（集中率も返すバージョン） */
@@ -709,7 +727,9 @@ void allocate_future_arrays()
                     fprintf(stderr, "ERROR: Failed to allocate future_min (dimension 4)\n");
                     exit(1);
                 }
-                // Initialize with INFINITY
+                /* BugFix P3: INFINITY初期化（最小値追跡用） */
+                // 初期値をINFINITYに設定し、実データとの比較で最小値を記録
+                // match_count == 0の場合、この値が残るがルール登録時に0.0に変換される
                 for (int s = 0; s < FUTURE_SPAN; s++)
                 {
                     future_min[i][j][k][s] = INFINITY;
@@ -752,7 +772,9 @@ void allocate_future_arrays()
                     fprintf(stderr, "ERROR: Failed to allocate future_max (dimension 4)\n");
                     exit(1);
                 }
-                // Initialize with -INFINITY
+                /* BugFix P3: -INFINITY初期化（最大値追跡用） */
+                // 初期値を-INFINITYに設定し、実データとの比較で最大値を記録
+                // match_count == 0の場合、この値が残るがルール登録時に0.0に変換される
                 for (int s = 0; s < FUTURE_SPAN; s++)
                 {
                     future_max[i][j][k][s] = -INFINITY;
@@ -1152,6 +1174,8 @@ int load_csv_with_header()
         {
             // 最初の行（ヘッダー）からカラム数を数える
             char temp_line[MAX_LINE_LENGTH];
+            /* BugFix P4: strncpyの安全な使用 */
+            // strncpyは自動的にNULL終端しないため、明示的に終端文字を追加
             strncpy(temp_line, line, MAX_LINE_LENGTH - 1);
             temp_line[MAX_LINE_LENGTH - 1] = '\0'; // NULL終端を保証
             token = strtok(temp_line, ",\n");
@@ -1765,7 +1789,8 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        int *rule_attributes, int *time_delays,
                        int **matched_indices_out,        /* NEW: 出力パラメータ */
                        double *concentration_rate_out,   /* NEW: 出力パラメータ */
-                       int *in_quadrant_count_out)       /* NEW: 出力パラメータ */
+                       int *in_quadrant_count_out,       /* NEW: 出力パラメータ */
+                       int *quadrant_out)                /* v5.2: 象限番号 出力パラメータ */
 {
     int quadrant;
 
@@ -1810,6 +1835,7 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     *matched_indices_out = matched_indices;        // 呼び出し側に所有権を移す（解放しない）
     *concentration_rate_out = concentration_rate;
     *in_quadrant_count_out = in_quadrant_count;
+    *quadrant_out = quadrant;                      // v5.2: 象限番号を返す
 
     return 1;
 }
@@ -1848,7 +1874,8 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
                        double *future_min, double *future_max,
                        int support_count, double support_value,
                        int num_attributes,
-                       int individual, int k, int depth)
+                       int individual, int k, int depth,
+                       int quadrant, double concentration, double deviation)  /* v5.2: 品質指標 */
 {
     int idx = state->rule_count;
     int i;
@@ -1874,6 +1901,11 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
     rule_pool[idx].negative_count = Nrd - FUTURE_SPAN;
     rule_pool[idx].support_rate = support_value; // サポート率を保存
     rule_pool[idx].num_attributes = num_attributes;
+
+    /* v5.2: 品質指標を保存 */
+    rule_pool[idx].quadrant = quadrant;
+    rule_pool[idx].concentration = concentration;
+    rule_pool[idx].deviation = deviation;
 
     // 高サポートフラグの設定
     int high_support_marker = 0;
@@ -2043,14 +2075,32 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                     if (rule_candidate_pre[i2] == k2)
                     {
                         found = 1;
-                        time_delay_memo[j2] = time_delay_candidate[i2];
+                        /* BugFix P1: 境界チェック追加（配列オーバーフロー防止） */
+                        if (j2 < MAX_ATTRIBUTES)
+                        {
+                            time_delay_memo[j2] = time_delay_candidate[i2];
+                        }
+                        else
+                        {
+                            fprintf(stderr, "WARNING: j2 exceeded MAX_ATTRIBUTES at k2=%d\n", k2);
+                            found = 0; // 境界超過を無効化
+                        }
                     }
                 }
                 if (found == 1)
                 {
-                    rule_candidate[j2] = k2;
-                    rule_memo[j2] = k2;
-                    j2++;
+                    /* BugFix P1: 境界チェック追加（配列オーバーフロー防止） */
+                    if (j2 < MAX_ATTRIBUTES)
+                    {
+                        rule_candidate[j2] = k2;
+                        rule_memo[j2] = k2;
+                        j2++;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "ERROR: j2 exceeded MAX_ATTRIBUTES (%d). Skipping attribute %d.\n", MAX_ATTRIBUTES, k2);
+                        break; // これ以上の属性追加を中止
+                    }
                 }
             }
 
@@ -2059,13 +2109,15 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
             int *matched_indices_from_check = NULL;
             double concentration_rate_from_check = 0.0;
             int in_quadrant_count_from_check = 0;
+            int quadrant_from_check = 0;               /* v5.2: 象限番号 */
 
             if (check_rule_quality(future_sigma_ptr, future_mean_ptr, j2,
                                    future_min_ptr, future_max_ptr, matched_count,
                                    rule_candidate, time_delay_memo,
                                    &matched_indices_from_check,          /* NEW */
                                    &concentration_rate_from_check,       /* NEW */
-                                   &in_quadrant_count_from_check))       /* NEW */
+                                   &in_quadrant_count_from_check,        /* NEW */
+                                   &quadrant_from_check))                /* v5.2 */
             {
                 if (j2 < 9 && j2 >= 1)
                 {
@@ -2077,13 +2129,82 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
                         double correct_support_rate = calculate_accurate_support_rate(matched_count, time_delay_memo, j2);
 
-                        // 新規ルールとして登録
+                        /* v5.2: 実際のマッチポイントからmin/maxを再計算（逸脱チェック後） */
+                        double recalc_min[FUTURE_SPAN];
+                        double recalc_max[FUTURE_SPAN];
+                        double recalc_mean[FUTURE_SPAN];
+                        double recalc_sigma[FUTURE_SPAN];
+
+                        for (int s = 0; s < FUTURE_SPAN; s++)
+                        {
+                            recalc_min[s] = INFINITY;
+                            recalc_max[s] = -INFINITY;
+                            recalc_mean[s] = 0.0;
+                            recalc_sigma[s] = 0.0;
+                        }
+
+                        int valid_count = 0;
+                        for (int mi = 0; mi < matched_count; mi++)
+                        {
+                            int time_idx = matched_indices_from_check[mi];
+                            int all_valid = 1;
+
+                            for (int s = 0; s < FUTURE_SPAN; s++)
+                            {
+                                double fval = get_future_value(time_idx, s + 1);
+                                if (isnan(fval))
+                                {
+                                    all_valid = 0;
+                                    break;
+                                }
+                            }
+
+                            if (all_valid)
+                            {
+                                for (int s = 0; s < FUTURE_SPAN; s++)
+                                {
+                                    double fval = get_future_value(time_idx, s + 1);
+                                    recalc_mean[s] += fval;
+                                    recalc_sigma[s] += fval * fval;
+                                    if (fval < recalc_min[s]) recalc_min[s] = fval;
+                                    if (fval > recalc_max[s]) recalc_max[s] = fval;
+                                }
+                                valid_count++;
+                            }
+                        }
+
+                        // 平均とσを計算
+                        for (int s = 0; s < FUTURE_SPAN; s++)
+                        {
+                            if (valid_count > 0)
+                            {
+                                recalc_mean[s] /= valid_count;
+                                recalc_sigma[s] = sqrt((recalc_sigma[s] / valid_count) - (recalc_mean[s] * recalc_mean[s]));
+                            }
+                            else
+                            {
+                                recalc_mean[s] = 0.0;
+                                recalc_sigma[s] = 0.0;
+                                recalc_min[s] = 0.0;
+                                recalc_max[s] = 0.0;
+                            }
+                        }
+
+                        /* v5.2: Deviation計算（再計算されたmin/maxを使用） */
+                        double dev_t1 = fmax(fabs(recalc_min[0]), fabs(recalc_max[0]));
+                        double dev_t2 = fmax(fabs(recalc_min[1]), fabs(recalc_max[1]));
+                        double deviation_value = (dev_t1 + dev_t2) / 2.0;
+
+                        // 新規ルールとして登録（再計算された統計値を使用）
                         register_new_rule(state, rule_candidate, time_delay_memo,
-                                          future_mean_ptr, future_sigma_ptr,
-                                          future_min_ptr, future_max_ptr,
+                                          recalc_mean, recalc_sigma,
+                                          recalc_min, recalc_max,
                                           matched_count,
                                           correct_support_rate, j2,
-                                          individual, k, loop_j);
+                                          individual, k, loop_j,
+                                          quadrant_from_check,              /* v5.2: 象限番号 */
+                                          concentration_rate_from_check,    /* v5.2: 集中度 */
+                                          deviation_value);                 /* v5.2: 逸脱メトリック */
 
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
@@ -2156,6 +2277,7 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
 
                     /* Phase 2: matched_indicesの解放（check_rule_qualityから受け取ったもの） */
                     free(matched_indices_from_check);
+                    matched_indices_from_check = NULL; // 二重解放防止
 
                     // ルール数上限チェック
                     if (state->rule_count > (Nrulemax - 2))
@@ -2163,7 +2285,15 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         break;
                     }
                 }
+                else
+                {
+                    /* BugFix P0: j2が範囲外の場合もメモリ解放 */
+                    free(matched_indices_from_check);
+                    matched_indices_from_check = NULL;
+                }
             }
+            /* BugFix P0: check_rule_qualityが失敗した場合、matched_indices_from_checkはNULLのまま */
+            /* （check_rule_quality内部で既に解放済みのため、ここでの解放は不要） */
         }
     }
 }
@@ -2318,8 +2448,13 @@ static int roulette_wheel_selection(int *usage_array, int array_size, int total_
         }
     }
 
-    // フォールバック（念のため）
-    return default_value;
+    /* BugFix P2: エッジケース対策（total_usage != sum(usage_array)の場合） */
+    // 理論的には到達しないが、数値誤差やバグの場合の安全策
+    fprintf(stderr, "WARNING: roulette_wheel_selection reached end (total_usage=%d, accumulated=%d, array_size=%d)\n",
+            total_usage, accumulated, array_size);
+
+    // 最後の要素を返す（最も安全なフォールバック）
+    return (array_size > 0) ? (array_size - 1) : default_value;
 }
 
 int roulette_wheel_selection_delay(int total_usage)
@@ -2765,7 +2900,7 @@ void write_global_pool(struct trial_state *state)
         }
 
         // その他の統計列
-        fprintf(file_a, "support_count\tsupport_rate\tNegative\tHighSup\tLowVar\tNumAttr\n");
+        fprintf(file_a, "support_count\tsupport_rate\tQuadrant\tConcentration\tNumAttr\n");
 
         // グローバルプールの全ルールを出力
         for (i = 0; i < global_rule_count; i++)
@@ -2797,10 +2932,11 @@ void write_global_pool(struct trial_state *state)
             }
 
             // その他の統計
-            fprintf(file_a, "%d\t%6.4f\t%d\t%d\t%d\t",
-                    global_rule_pool[i].support_count, global_rule_pool[i].support_rate,
-                    global_rule_pool[i].negative_count,
-                    global_rule_pool[i].high_support_flag, global_rule_pool[i].low_variance_flag);
+            fprintf(file_a, "%d\t%6.4f\t%s\t%5.3f\t",
+                    global_rule_pool[i].support_count,
+                    global_rule_pool[i].support_rate,
+                    quadrant_to_string(global_rule_pool[i].quadrant),
+                    global_rule_pool[i].concentration);
 
             // 属性数
             fprintf(file_a, "%d\n",
