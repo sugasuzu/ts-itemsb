@@ -31,9 +31,9 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 象限集中方式（v5.0 - シンプル化：0ベース象限判定） */
-#define Minsup 0.004           // 最小支持度
-#define MIN_CONCENTRATION 0.40 // 最小集中率（検証用に緩和：40%）
-#define MAX_DEVIATION 0.75      // 最大逸脱率（検証用に緩和：0.74%）
+#define Minsup 0.005           // 最小支持度
+#define MIN_CONCENTRATION 0.50 // 最小集中率
+#define MAX_DEVIATION 0.50     // 最大逸脱率
 
 /* ルール品質フラグ設定の係数 */
 #define HIGH_SUPPORT_MULTIPLIER 2.0 // 高サポートフラグの判定係数（Minsup * 2.0）
@@ -41,7 +41,7 @@
 /* 実験パラメータ */
 #define Nrulemax 2002
 #define Nstart 1000
-#define Ntry 1
+#define Ntry 10
 
 /* GNPパラメータ */
 #define Generation 201
@@ -103,9 +103,9 @@ struct temporal_rule
     int num_attributes;
 
     /* 品質指標（v5.2追加） */
-    int quadrant;           // 支配象限: 1=Q1(++), 2=Q2(-+), 3=Q3(--), 4=Q4(+-), 0=undefined
-    double concentration;   // 象限集中度: 0.0-1.0
-    double deviation;       // 逸脱メトリック: (max(|min_t1|, |max_t1|) + max(|min_t2|, |max_t2|)) / 2
+    int quadrant;         // 支配象限: 1=Q1(++), 2=Q2(-+), 3=Q3(--), 4=Q4(+-), 0=undefined
+    double concentration; // 象限集中度: 0.0-1.0
+    double deviation;     // 逸脱メトリック: (max(|min_t1|, |max_t1|) + max(|min_t2|, |max_t2|)) / 2
 
     int *matched_indices;
     int matched_count_vis;
@@ -406,15 +406,20 @@ __attribute__((unused)) static double calculate_maximum_return(int *matched_indi
 }
 
 /* 象限番号を文字列表現に変換するヘルパー関数 */
-static const char* quadrant_to_string(int quadrant)
+static const char *quadrant_to_string(int quadrant)
 {
     switch (quadrant)
     {
-        case 1: return "Q1(++)";
-        case 2: return "Q2(-+)";
-        case 3: return "Q3(--)";
-        case 4: return "Q4(+-)";
-        default: return "Q0(NA)";
+    case 1:
+        return "Q1(++)";
+    case 2:
+        return "Q2(-+)";
+    case 3:
+        return "Q3(--)";
+    case 4:
+        return "Q4(+-)";
+    default:
+        return "Q0(NA)";
     }
 }
 
@@ -562,8 +567,8 @@ static int rematch_rule_pattern(int *rule_attributes, int *time_delays, int num_
     /* 論文の式(3)準拠: S_max(X∪Y) = max_delay + FUTURE_SPAN に基づく有効範囲 */
     if (TIMESERIES_MODE)
     {
-        safe_start = max_delay;              // ルール固有の開始点（過去参照可能）
-        safe_end = Nrd - FUTURE_SPAN;        // 未来予測可能な終了点
+        safe_start = max_delay;       // ルール固有の開始点（過去参照可能）
+        safe_end = Nrd - FUTURE_SPAN; // 未来予測可能な終了点
     }
     else
     {
@@ -1787,10 +1792,10 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
                        int num_attributes,
                        double *future_min_array, double *future_max_array, int matched_count,
                        int *rule_attributes, int *time_delays,
-                       int **matched_indices_out,        /* NEW: 出力パラメータ */
-                       double *concentration_rate_out,   /* NEW: 出力パラメータ */
-                       int *in_quadrant_count_out,       /* NEW: 出力パラメータ */
-                       int *quadrant_out)                /* v5.2: 象限番号 出力パラメータ */
+                       int **matched_indices_out,      /* NEW: 出力パラメータ */
+                       double *concentration_rate_out, /* NEW: 出力パラメータ */
+                       int *in_quadrant_count_out,     /* NEW: 出力パラメータ */
+                       int *quadrant_out)              /* v5.2: 象限番号 出力パラメータ */
 {
     int quadrant;
 
@@ -1832,10 +1837,10 @@ int check_rule_quality(double *future_sigma_array, double *future_mean_array,
     filter_passed_total++;
 
     /* 計算済み結果を出力パラメータに設定（Phase 2: Triple Rematch Fix） */
-    *matched_indices_out = matched_indices;        // 呼び出し側に所有権を移す（解放しない）
+    *matched_indices_out = matched_indices; // 呼び出し側に所有権を移す（解放しない）
     *concentration_rate_out = concentration_rate;
     *in_quadrant_count_out = in_quadrant_count;
-    *quadrant_out = quadrant;                      // v5.2: 象限番号を返す
+    *quadrant_out = quadrant; // v5.2: 象限番号を返す
 
     return 1;
 }
@@ -1875,7 +1880,7 @@ void register_new_rule(struct trial_state *state, int *rule_candidate, int *time
                        int support_count, double support_value,
                        int num_attributes,
                        int individual, int k, int depth,
-                       int quadrant, double concentration, double deviation)  /* v5.2: 品質指標 */
+                       int quadrant, double concentration, double deviation) /* v5.2: 品質指標 */
 {
     int idx = state->rule_count;
     int i;
@@ -1948,8 +1953,8 @@ void collect_matched_indices(int rule_idx, int *rule_attrs, int *time_delays, in
     /* 論文の式(3)準拠: S_max(X∪Y) = max_delay + FUTURE_SPAN に基づく有効範囲 */
     if (TIMESERIES_MODE)
     {
-        safe_start = max_delay;              // ルール固有の開始点（過去参照可能）
-        safe_end = Nrd - FUTURE_SPAN;        // 未来予測可能な終了点
+        safe_start = max_delay;       // ルール固有の開始点（過去参照可能）
+        safe_end = Nrd - FUTURE_SPAN; // 未来予測可能な終了点
     }
     else
     {
@@ -2109,15 +2114,15 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
             int *matched_indices_from_check = NULL;
             double concentration_rate_from_check = 0.0;
             int in_quadrant_count_from_check = 0;
-            int quadrant_from_check = 0;               /* v5.2: 象限番号 */
+            int quadrant_from_check = 0; /* v5.2: 象限番号 */
 
             if (check_rule_quality(future_sigma_ptr, future_mean_ptr, j2,
                                    future_min_ptr, future_max_ptr, matched_count,
                                    rule_candidate, time_delay_memo,
-                                   &matched_indices_from_check,          /* NEW */
-                                   &concentration_rate_from_check,       /* NEW */
-                                   &in_quadrant_count_from_check,        /* NEW */
-                                   &quadrant_from_check))                /* v5.2 */
+                                   &matched_indices_from_check,    /* NEW */
+                                   &concentration_rate_from_check, /* NEW */
+                                   &in_quadrant_count_from_check,  /* NEW */
+                                   &quadrant_from_check))          /* v5.2 */
             {
                 if (j2 < 9 && j2 >= 1)
                 {
@@ -2166,8 +2171,10 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                                     double fval = get_future_value(time_idx, s + 1);
                                     recalc_mean[s] += fval;
                                     recalc_sigma[s] += fval * fval;
-                                    if (fval < recalc_min[s]) recalc_min[s] = fval;
-                                    if (fval > recalc_max[s]) recalc_max[s] = fval;
+                                    if (fval < recalc_min[s])
+                                        recalc_min[s] = fval;
+                                    if (fval > recalc_max[s])
+                                        recalc_max[s] = fval;
                                 }
                                 valid_count++;
                             }
@@ -2202,9 +2209,9 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                                           matched_count,
                                           correct_support_rate, j2,
                                           individual, k, loop_j,
-                                          quadrant_from_check,              /* v5.2: 象限番号 */
-                                          concentration_rate_from_check,    /* v5.2: 集中度 */
-                                          deviation_value);                 /* v5.2: 逸脱メトリック */
+                                          quadrant_from_check,           /* v5.2: 象限番号 */
+                                          concentration_rate_from_check, /* v5.2: 集中度 */
+                                          deviation_value);              /* v5.2: 逸脱メトリック */
 
                         // 属性数別カウントを更新
                         rules_by_attribute_count[j2]++;
@@ -3454,12 +3461,7 @@ int process_single_stock(const char *code)
         create_initial_population();       // 初期個体群を生成
         create_trial_files(&state);        // 出力ファイルを作成
 
-        // フィルタ統計カウンタをリセット
-        filter_rejected_by_minsup = 0;
-        filter_rejected_by_quadrant_rate = 0;
-        filter_rejected_by_quadrant_deviation = 0;
-        filter_passed_total = 0;
-        filter_passed_duplicates = 0;
+        // フィルタ統計カウンタは全ラウンド累積（リセットしない）
 
         /* ---------- 進化計算ループ ---------- */
         // Generation世代まで進化を実行
