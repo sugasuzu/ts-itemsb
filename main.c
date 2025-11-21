@@ -31,8 +31,8 @@
 #define RESULT_FILE "output/doc/zrmemo01.txt"
 
 /* ルールマイニング制約 - 象限集中方式（v5.0 - シンプル化：0ベース象限判定） */
-#define Minsup 0.005           // 最小支持度
-#define MIN_CONCENTRATION 0.50 // 最小集中率
+#define Minsup 0.003           // 最小支持度
+#define MIN_CONCENTRATION 0.30 // 最小集中率
 #define MAX_DEVIATION 0.50     // 最大逸脱率
 
 /* ルール品質フラグ設定の係数 */
@@ -2223,24 +2223,17 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
                         double support_rate = calculate_accurate_support_rate(matched_count, time_delay_memo, j2);
 
-                        // 集中率ボーナスを計算（Action 2: 非線形化）
-                        // 45%以上の集中率に指数関数的な巨大ボーナスを与える
-                        double concentration_bonus = 0.0;
-                        if (concentration_rate >= 0.45)
-                        {
-                            // 45% → 50% で劇的に増加する非線形ボーナス
-                            // 例: 45% → 0, 47.5% → 625, 50% → 10000
-                            double excess = (concentration_rate - 0.45) * 20.0; // 0.0 ～ 1.0にスケール
-                            concentration_bonus = pow(excess, 2) * 10000.0;
-                        }
+                        // 象限跨ぎペナルティ（v5.3: 非線形ボーナス廃止、バランス重視）
+                        // 支配象限以外の比率が高いほどペナルティ
+                        double cross_quadrant_penalty = (1.0 - concentration_rate) * 10.0;
 
-                        // 適応度を更新（v5.1: 属性数 + サポート率 + 集中率）
+                        // 適応度を更新（v5.3: バランス型）
                         fitness_value[individual] +=
-                            (double)j2 +                 // 属性数（複雑さボーナス）
-                            support_rate * 10.0 +        // サポート率（10倍重み）
-                            concentration_rate * 100.0 + // 基本集中率（100倍重み）
-                            concentration_bonus +        // 高集中率ボーナス（非線形、最大10000）
-                            20.0;                        // 新規ルールボーナス
+                            (double)j2 +                // ① 属性数（1-8）
+                            support_rate * 10.0 +       // ② サポート率 × 10
+                            concentration_rate * 10.0 + // ③ 基本集中率 × 10
+                            -cross_quadrant_penalty +   // ④ 象限跨ぎペナルティ × 10（マイナス）
+                            20.0;                       // ⑤ 新規ルールボーナス
 
                         // 属性使用履歴を更新
                         for (k3 = 0; k3 < j2; k3++)
@@ -2266,20 +2259,16 @@ void extract_rules_from_individual(struct trial_state *state, int individual)
                         /* 論文準拠: support'(X) = t'(X) / (N - S_max(X∪Y)) */
                         double support_rate = calculate_accurate_support_rate(matched_count, time_delay_memo, j2);
 
-                        // 集中率ボーナスを計算（Action 2: 非線形化）
-                        double concentration_bonus = 0.0;
-                        if (concentration_rate >= 0.45)
-                        {
-                            double excess = (concentration_rate - 0.45) * 20.0;
-                            concentration_bonus = pow(excess, 2) * 10000.0;
-                        }
+                        // 象限跨ぎペナルティ（v5.3: 非線形ボーナス廃止、バランス重視）
+                        // 支配象限以外の比率が高いほどペナルティ
+                        double cross_quadrant_penalty = (1.0 - concentration_rate) * 10.0;
 
-                        // 適応度を更新（新規ボーナスなし、重複ルール）
+                        // 適応度を更新（v5.3: バランス型、新規ボーナスなし - 重複ルール）
                         fitness_value[individual] +=
-                            (double)j2 +                 // 属性数
-                            support_rate * 10.0 +        // サポート率
-                            concentration_rate * 100.0 + // 基本集中率
-                            concentration_bonus;         // 高集中率ボーナス
+                            (double)j2 +                // ① 属性数（1-8）
+                            support_rate * 10.0 +       // ② サポート率 × 10
+                            concentration_rate * 10.0 + // ③ 基本集中率 × 10
+                            -cross_quadrant_penalty;    // ④ 象限跨ぎペナルティ × 10（マイナス）
                     }
 
                     /* Phase 2: matched_indicesの解放（check_rule_qualityから受け取ったもの） */
