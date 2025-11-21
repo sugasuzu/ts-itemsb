@@ -44,7 +44,7 @@
 #define Ntry 10
 
 /* GNPパラメータ */
-#define Generation 201
+#define Generation 1001
 #define Nkotai 120
 #define Npn 10
 #define Njg 100
